@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitor de Momentum — VAROS</title>
+<link rel="stylesheet" href="assets/instrument-sans.css">
+<style>
+  :root{
+    /* Fundo */
+    --bg:#000000; --panel:#131313; --panel2:#1c1c1c; --panel3:#242424;
+    --border:#2b2b2b;
+    /* Texto (guia VAROS) */
+    --txt:#E2E5EB;    /* títulos, legenda, valores */
+    --axis:#C6CAD2;   /* eixos / rótulos de coluna */
+    --muted:#878D96;  /* secundário */
+    /* Paleta verde-turquesa */
+    --accent:#12D8B2; --accent-d:#239B84; --teal-dk:#296055;
+    --up:#43AF43; --up-bright:#4FE04F;
+    --down:#E5484D;               /* queda: fora da paleta de séries, sinal funcional */
+    --up-soft:rgba(67,175,67,.15); --down-soft:rgba(229,72,77,.15);
+    --hl:rgba(18,216,178,.09);    /* coluna selecionada (turquesa suave) */
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--txt);
+    font-family:'Instrument Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:14px; line-height:1.45; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1240px; margin:0 auto; padding:26px 20px 60px}
+
+  header{display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:22px}
+  h1{font-size:23px; font-weight:600; margin:0; letter-spacing:.2px; color:var(--txt)}
+  h1 .dot{color:var(--accent)}
+  h1 .b3{color:var(--muted); font-weight:400}
+  .sub{color:var(--muted); font-size:12.5px; margin-top:5px}
+
+  .controls{
+    display:flex; flex-wrap:wrap; gap:14px 22px; align-items:flex-end;
+    background:var(--panel); border:1px solid var(--border); border-radius:14px;
+    padding:16px 18px; margin-bottom:18px;
+  }
+  .field{display:flex; flex-direction:column; gap:6px}
+  .field label{font-size:11px; text-transform:uppercase; letter-spacing:.7px; color:var(--muted)}
+  select, input[type=search]{
+    font-family:inherit; background:var(--panel2); color:var(--txt);
+    border:1px solid var(--border); border-radius:9px; padding:9px 11px;
+    font-size:13.5px; outline:none; min-width:150px;
+  }
+  select:focus, input:focus{border-color:var(--accent)}
+  select:hover, input:hover{border-color:#3a3a3a}
+
+  .segmented{display:inline-flex; background:var(--panel2); border:1px solid var(--border); border-radius:9px; overflow:hidden}
+  .segmented button{
+    font-family:inherit; background:transparent; color:var(--axis); border:0;
+    padding:9px 13px; font-size:13px; cursor:pointer; border-right:1px solid var(--border);
+  }
+  .segmented button:last-child{border-right:0}
+  .segmented button.on{background:var(--accent); color:#08211b; font-weight:600}
+  .segmented button:hover:not(.on){color:var(--txt); background:var(--panel3)}
+  /* Destaque do seletor de Análise (modo) */
+  .segmented.modo button.on{background:var(--accent)}
+
+  .toggle{display:inline-flex; background:var(--panel2); border:1px solid var(--border); border-radius:9px; overflow:hidden}
+  .toggle button{font-family:inherit; background:transparent; color:var(--axis); border:0; padding:9px 15px; font-size:13px; cursor:pointer; white-space:nowrap}
+  .toggle button:hover:not(.on){background:var(--panel3)}
+  .toggle button.on.alta{background:var(--up-soft); color:var(--up-bright); font-weight:600}
+  .toggle button.on.baixa{background:var(--down-soft); color:var(--down); font-weight:600}
+
+  .summary{color:var(--muted); font-size:12.5px; margin:2px 2px 12px}
+  .summary b{color:var(--txt); font-weight:600}
+
+  .tablewrap{border:1px solid var(--border); border-radius:14px; overflow:auto; background:var(--panel)}
+  table{border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums}
+  thead th{
+    position:sticky; top:0; background:#181818; color:var(--axis);
+    font-size:11px; text-transform:uppercase; letter-spacing:.5px; font-weight:600;
+    padding:11px 12px; text-align:right; white-space:nowrap; cursor:pointer; user-select:none;
+    border-bottom:1px solid var(--border);
+  }
+  thead th.lft{text-align:left}
+  thead th.sel{color:var(--accent); background:var(--hl)}
+  thead th.novo{cursor:default}
+  thead th .arw{opacity:.6; font-size:9px}
+  tbody td{padding:10px 12px; text-align:right; white-space:nowrap; border-bottom:1px solid rgba(43,43,43,.6)}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover td{background:rgba(255,255,255,.022)}
+  td.lft{text-align:left}
+  td.sel{background:var(--hl)}
+  .rank{color:var(--muted); width:34px}
+  .tk{font-weight:700; letter-spacing:.3px; color:var(--txt)}
+  .nm{color:var(--muted); font-size:12px}
+  .price{color:var(--txt)}
+  .up{color:var(--up-bright)} .down{color:var(--down)} .na{color:#4d5158}
+  .cellbar{position:relative}
+  .cellbar .bar{position:absolute; top:0; bottom:0; right:0; opacity:.20}
+  .cellbar .val{position:relative}
+  td.sel .val{font-weight:700; font-size:14.5px}
+  .spark{display:block}
+  /* Volume relativo (turquesa — separado do verde/vermelho de retorno) */
+  .volcell{position:relative}
+  .volcell .vbar{position:absolute; top:0; bottom:0; right:0; background:var(--accent); opacity:.16}
+  .volcell .vval{position:relative}
+  .vhi{color:var(--accent); font-weight:700}
+  .vmid{color:var(--txt)}
+  .vlo{color:var(--muted)}
+
+  .empty{padding:40px; text-align:center; color:var(--muted)}
+  footer{margin-top:22px; color:var(--muted); font-size:11.5px; line-height:1.6}
+  .badge{display:inline-block; padding:3px 10px; border:1px solid var(--border); border-radius:20px; font-size:11px; color:var(--axis); background:var(--panel)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1>Monitor de Momentum<span class="dot"> ·</span> <span class="b3">B3</span></h1>
+      <div class="sub" id="sub">carregando…</div>
+    </div>
+    <div><span class="badge" id="badge">—</span></div>
+  </header>
+
+  <div class="controls">
+    <div class="field">
+      <label>Análise</label>
+      <div class="segmented modo" id="segModo">
+        <button data-modo="momentum" class="on">Momentum</button>
+        <button data-modo="volume">Volume</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Índice</label>
+      <select id="selIndice"></select>
+    </div>
+    <div class="field">
+      <label>Período</label>
+      <div class="segmented" id="segPeriodo"></div>
+    </div>
+    <div class="field">
+      <label>Ordenar por</label>
+      <div class="toggle" id="segDir">
+        <button data-dir="desc" class="on alta">▲ Maiores altas</button>
+        <button data-dir="asc" class="baixa">▼ Maiores baixas</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Mostrar</label>
+      <select id="selTopN">
+        <option value="10">Top 10</option>
+        <option value="20" selected>Top 20</option>
+        <option value="50">Top 50</option>
+        <option value="9999">Todas</option>
+      </select>
+    </div>
+    <div class="field" style="flex:1; min-width:180px">
+      <label>Buscar</label>
+      <input type="search" id="busca" placeholder="ticker ou empresa…">
+    </div>
+  </div>
+
+  <div class="summary" id="summary"></div>
+
+  <div class="tablewrap">
+    <table id="tab">
+      <thead id="thead"></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <footer id="footer"></footer>
+</div>
+
+<script src="dados.js"></script>
+<script>
+(function(){
+  const D = window.DADOS_MOMENTUM;
+  const ORDEM_PERIODOS = ["7d","15d","30d","2m","3m","6m","1a"];
+
+  if(!D){
+    document.getElementById("sub").textContent =
+      "Não encontrei o arquivo de dados (dados.js). Rode  python3 atualizar.py  primeiro.";
+    return;
+  }
+
+  // Universo combinado: "Todos" = união dos índices, sem repetir ticker.
+  const vistos = new Set();
+  const acoesTodos = [];
+  for(const idx of Object.values(D.indices)){
+    for(const a of idx.acoes){
+      if(vistos.has(a.ticker)) continue;
+      vistos.add(a.ticker);
+      acoesTodos.push(a);
+    }
+  }
+  const INDICES = Object.assign(
+    { TODOS: { nome:"Todos os índices", acoes: acoesTodos } },
+    D.indices
+  );
+
+  // Estado da tela
+  const estado = {
+    modo: "momentum",      // "momentum" | "volume"
+    indice: "TODOS",
+    periodo: "30d",
+    dir: "desc",           // desc = maiores altas / maior volume
+    sortCampo: "retorno",  // "retorno" (usa periodo) ou "volume"
+    topN: 20,
+    busca: "",
+  };
+
+  const thead = document.getElementById("thead");
+  const tbody = document.getElementById("tbody");
+  const summaryEl = document.getElementById("summary");
+
+  // --- Cabeçalho / rótulos ---
+  document.getElementById("sub").textContent =
+    `Atualizado em ${D.atualizado_em} · pregão de referência ${D.data_pregao || "—"}`;
+  document.getElementById("badge").textContent = "Yahoo Finance · fechamento ajustado";
+
+  // Seletor de índice
+  const selIndice = document.getElementById("selIndice");
+  for(const [cod, idx] of Object.entries(INDICES)){
+    const o = document.createElement("option");
+    o.value = cod;
+    o.textContent = `${cod} — ${idx.nome} (${idx.acoes.length})`;
+    selIndice.appendChild(o);
+  }
+
+  // Botões de período
+  const segPeriodo = document.getElementById("segPeriodo");
+  ORDEM_PERIODOS.forEach(p=>{
+    const b = document.createElement("button");
+    b.dataset.p = p;
+    b.textContent = D.periodos[p] || p;
+    if(p===estado.periodo) b.classList.add("on");
+    b.onclick = ()=>{
+      estado.periodo=p;
+      if(estado.modo==="momentum") estado.sortCampo="retorno";
+      syncSeg(); render();
+    };
+    segPeriodo.appendChild(b);
+  });
+  function syncSeg(){
+    [...segPeriodo.children].forEach(b=>b.classList.toggle("on", b.dataset.p===estado.periodo));
+  }
+
+  // Seletor de Análise (modo)
+  const segModo = document.getElementById("segModo");
+  segModo.querySelectorAll("button").forEach(b=>{
+    b.onclick = ()=>{
+      estado.modo = b.dataset.modo;
+      estado.sortCampo = estado.modo==="volume" ? "volume" : "retorno";
+      segModo.querySelectorAll("button").forEach(x=>x.classList.toggle("on", x===b));
+      atualizarLabelsDir();
+      render();
+    };
+  });
+
+  // Toggle direção
+  const segDir = document.getElementById("segDir");
+  const btnDesc = segDir.querySelector('[data-dir="desc"]');
+  const btnAsc  = segDir.querySelector('[data-dir="asc"]');
+  segDir.querySelectorAll("button").forEach(b=>{
+    b.onclick = ()=>{
+      estado.dir = b.dataset.dir;
+      segDir.querySelectorAll("button").forEach(x=>x.classList.toggle("on", x===b));
+      render();
+    };
+  });
+  function atualizarLabelsDir(){
+    // Rótulo do toggle depende do que está sendo ordenado.
+    const porVolume = estado.modo==="volume" && estado.sortCampo==="volume";
+    btnDesc.textContent = porVolume ? "▲ Maior volume" : "▲ Maiores altas";
+    btnAsc.textContent  = porVolume ? "▼ Menor volume" : "▼ Maiores baixas";
+  }
+
+  selIndice.onchange = e=>{ estado.indice=e.target.value; render(); };
+  document.getElementById("selTopN").onchange = e=>{ estado.topN=+e.target.value; render(); };
+  document.getElementById("busca").oninput = e=>{ estado.busca=e.target.value.trim().toLowerCase(); render(); };
+
+  // --- Utilidades ---
+  const fmtPct = r => r==null ? "—" : (r*100).toFixed(2).replace(".",",")+"%";
+  const fmtPreco = p => p==null ? "—" : "R$ "+p.toFixed(2).replace(".",",");
+  const classe = r => r==null ? "na" : (r>=0 ? "up" : "down");
+  const fmtRvol = v => v==null ? "—" : v.toFixed(v>=10?0:1).replace(".",",")+"×";
+  const classeVol = v => v==null ? "na" : (v>=1.5 ? "vhi" : (v>=1 ? "vmid" : "vlo"));
+  function fmtVolRs(v){
+    if(v==null) return "—";
+    if(v>=1e9) return "R$ "+(v/1e9).toFixed(1).replace(".",",")+" bi";
+    if(v>=1e6) return "R$ "+(v/1e6).toFixed(0)+" mi";
+    return "R$ "+(v/1e3).toFixed(0)+" mil";
+  }
+
+  function sparkline(pts){
+    if(!pts || pts.length<2) return "";
+    const W=84, H=24, pad=2;
+    const min=Math.min(...pts), max=Math.max(...pts), rng=(max-min)||1;
+    const step=(W-2*pad)/(pts.length-1);
+    const coords = pts.map((v,i)=>[
+      (pad+i*step).toFixed(1),
+      (H-pad-((v-min)/rng)*(H-2*pad)).toFixed(1)
+    ]);
+    const d = coords.map(c=>c.join(",")).join(" ");
+    const cor = pts[pts.length-1] >= pts[0] ? "var(--up-bright)" : "var(--down)";
+    return `<svg class="spark" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`
+         + `<polyline fill="none" stroke="${cor}" stroke-width="1.5" points="${d}"/></svg>`;
+  }
+
+  const celAtivo = a => `<td class="lft"><span class="tk">${a.ticker}</span><br>`
+                      + `<span class="nm">${a.nome||""}</span></td>`;
+
+  // --- Render principal ---
+  function render(){
+    const idx = INDICES[estado.indice];
+    const per = estado.periodo;
+
+    // Filtro de busca
+    let linhas = idx.acoes.filter(a=>{
+      if(!estado.busca) return true;
+      return a.ticker.toLowerCase().includes(estado.busca)
+          || (a.nome||"").toLowerCase().includes(estado.busca);
+    });
+
+    // Valor de ordenação: retorno do período OU volume relativo.
+    const valorOrd = a => estado.sortCampo==="volume" ? a.rvol : a.retornos[per];
+    const dir = estado.dir==="desc" ? -1 : 1;
+    linhas.sort((a,b)=>{
+      const ra=valorOrd(a), rb=valorOrd(b);
+      if(ra==null && rb==null) return 0;
+      if(ra==null) return 1;
+      if(rb==null) return -1;
+      return (ra-rb)*dir;
+    });
+
+    const totalComDado = linhas.filter(a=>valorOrd(a)!=null).length;
+    linhas = linhas.slice(0, estado.topN);
+
+    if(estado.modo==="volume") renderVolume(idx, per, linhas, totalComDado);
+    else renderMomentum(idx, per, linhas, totalComDado);
+  }
+
+  // ---- Modo MOMENTUM (tabela limpa, sem volume) ----
+  function renderMomentum(idx, per, linhas, totalComDado){
+    const seta = estado.dir==="desc" ? "▼" : "▲";
+
+    let th = `<tr>
+      <th class="lft rank">#</th>
+      <th class="lft">Ativo</th>
+      <th class="lft">Tendência 6m</th>
+      <th>Preço</th>`;
+    ORDEM_PERIODOS.forEach(p=>{
+      const sel = p===per ? " sel" : "";
+      const arw = p===per ? `<span class="arw"> ${seta}</span>` : "";
+      th += `<th class="col${sel}" data-p="${p}">${D.periodos[p]}${arw}</th>`;
+    });
+    th += `</tr>`;
+    thead.innerHTML = th;
+    thead.querySelectorAll("th.col").forEach(el=>{
+      el.onclick = ()=>{ estado.periodo=el.dataset.p; estado.sortCampo="retorno"; syncSeg(); render(); };
+    });
+
+    const maxAbs = Math.max(0.0001, ...linhas.map(a=>Math.abs(a.retornos[per]??0)));
+    if(linhas.length===0){
+      tbody.innerHTML = `<tr><td class="empty" colspan="${4+ORDEM_PERIODOS.length}">Nada encontrado.</td></tr>`;
+    } else {
+      tbody.innerHTML = linhas.map((a,i)=>{
+        let tds = `<td class="lft rank">${i+1}</td>${celAtivo(a)}`
+                + `<td class="lft">${sparkline(a.spark)}</td>`
+                + `<td class="price">${fmtPreco(a.preco)}</td>`;
+        ORDEM_PERIODOS.forEach(p=>{
+          const r = a.retornos[p];
+          if(p===per){
+            const w = r==null ? 0 : Math.min(100, Math.abs(r)/maxAbs*100);
+            const barcor = r==null ? "transparent" : (r>=0? "var(--up)":"var(--down)");
+            tds += `<td class="sel cellbar"><span class="bar" style="width:${w}%;background:${barcor}"></span>`
+                 + `<span class="val ${classe(r)}">${fmtPct(r)}</span></td>`;
+          } else {
+            tds += `<td class="${classe(r)}">${fmtPct(r)}</td>`;
+          }
+        });
+        return `<tr>${tds}</tr>`;
+      }).join("");
+    }
+
+    const rotDir = estado.dir==="desc" ? "maiores altas" : "maiores baixas";
+    summaryEl.innerHTML =
+      `<b>${idx.nome}</b> · ordenado por <b>${D.periodos[per]}</b> (${rotDir}) · `
+      + `${totalComDado} ações com histórico · mostrando ${linhas.length}.`;
+  }
+
+  // ---- Modo VOLUME (visão dedicada) ----
+  function renderVolume(idx, per, linhas, totalComDado){
+    const seta = estado.dir==="desc" ? "▼" : "▲";
+    const volSel = estado.sortCampo==="volume";
+    const retSel = estado.sortCampo==="retorno";
+
+    thead.innerHTML = `<tr>
+      <th class="lft rank">#</th>
+      <th class="lft">Ativo</th>
+      <th class="lft">Tendência 6m</th>
+      <th class="novo">Preço</th>
+      <th id="thVol" class="${volSel?"sel":""}" title="Volume dos últimos 5 pregões vs. a média dos ~60 anteriores. 2× = negociando o dobro do normal.">Vol. relativo${volSel?`<span class="arw"> ${seta}</span>`:""}</th>
+      <th class="novo" title="Volume financeiro médio dos últimos 5 pregões">Volume (R$/dia)</th>
+      <th id="thVar" class="${retSel?"sel":""}">Var. ${D.periodos[per]}${retSel?`<span class="arw"> ${seta}</span>`:""}</th>
+    </tr>`;
+    document.getElementById("thVol").onclick = ()=>{ estado.sortCampo="volume"; atualizarLabelsDir(); render(); };
+    document.getElementById("thVar").onclick = ()=>{ estado.sortCampo="retorno"; atualizarLabelsDir(); render(); };
+
+    if(linhas.length===0){
+      tbody.innerHTML = `<tr><td class="empty" colspan="7">Nada encontrado.</td></tr>`;
+    } else {
+      tbody.innerHTML = linhas.map((a,i)=>{
+        const v = a.rvol;
+        const w = v==null ? 0 : Math.min(100, v/3*100);   // barra escala até 3×
+        const r = a.retornos[per];
+        return `<tr>
+          <td class="lft rank">${i+1}</td>${celAtivo(a)}
+          <td class="lft">${sparkline(a.spark)}</td>
+          <td class="price">${fmtPreco(a.preco)}</td>
+          <td class="volcell${volSel?" sel":""}"><span class="vbar" style="width:${w}%"></span><span class="vval ${classeVol(v)}">${fmtRvol(v)}</span></td>
+          <td class="${a.vol_rs==null?"na":"price"}">${fmtVolRs(a.vol_rs)}</td>
+          <td class="${classe(r)}${retSel?" sel":""}">${fmtPct(r)}</td>
+        </tr>`;
+      }).join("");
+    }
+
+    let ordLabel, rotDir;
+    if(volSel){
+      ordLabel = "volume relativo";
+      rotDir = estado.dir==="desc" ? "maior volume" : "menor volume";
+    } else {
+      ordLabel = "variação em "+D.periodos[per];
+      rotDir = estado.dir==="desc" ? "maiores altas" : "maiores baixas";
+    }
+    summaryEl.innerHTML =
+      `<b>${idx.nome}</b> · análise de volume · ordenado por <b>${ordLabel}</b> (${rotDir}) · `
+      + `${totalComDado} ações com dado · mostrando ${linhas.length}.`;
+  }
+
+  document.getElementById("footer").innerHTML =
+    "Retornos calculados sobre o preço de fechamento ajustado (proventos e desdobramentos) do Yahoo Finance. "
+    + "Volume relativo = média dos últimos 5 pregões ÷ média dos ~60 pregões anteriores. "
+    + "Ferramenta de acompanhamento — não é recomendação de investimento.";
+
+  render();
+})();
+</script>
+</body>
+</html>

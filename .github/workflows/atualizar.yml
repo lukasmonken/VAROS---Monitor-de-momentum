@@ -1,0 +1,43 @@
+name: Atualizar dados do monitor
+
+# Quando rodar:
+on:
+  schedule:
+    # 22:30 UTC = 19:30 no horário de Brasília, de segunda a sexta.
+    # (após o fechamento da B3, com os dados do dia já consolidados)
+    - cron: "30 22 * * 1-5"
+  workflow_dispatch: {}   # permite também rodar manualmente pelo botão do GitHub
+
+# O robô precisa poder gravar o dados.js atualizado de volta no repositório.
+permissions:
+  contents: write
+
+jobs:
+  atualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o repositório
+        uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Rodar o atualizador (consulta o Yahoo e gera dados.js)
+        run: python atualizar.py
+
+      - name: Publicar os dados atualizados
+        run: |
+          git config user.name  "github-actions"
+          git config user.email "github-actions@github.com"
+          git add dados.js dados.json
+          if git diff --staged --quiet; then
+            echo "Nenhuma mudança nos dados hoje."
+          else
+            git commit -m "Atualiza dados do monitor ($(date -u +%d/%m/%Y))"
+            git push
+          fi
