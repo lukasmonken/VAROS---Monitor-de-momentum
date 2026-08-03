@@ -185,9 +185,12 @@
   }
 
   // Universo combinado: "Todos" = união dos índices, sem repetir ticker.
+  // Índices marcados com "fora_de_todos" (ex.: IFIX, só fundos imobiliários)
+  // ficam de fora daqui — só aparecem quando selecionados diretamente.
   const vistos = new Set();
   const acoesTodos = [];
   for(const idx of Object.values(D.indices)){
+    if(idx.fora_de_todos) continue;
     for(const a of idx.acoes){
       if(vistos.has(a.ticker)) continue;
       vistos.add(a.ticker);
@@ -195,7 +198,7 @@
     }
   }
   const INDICES = Object.assign(
-    { TODOS: { nome:"Todos os índices", acoes: acoesTodos } },
+    { TODOS: { nome:"Todos os índices de ações", acoes: acoesTodos } },
     D.indices
   );
 
@@ -387,7 +390,7 @@
     const rotDir = estado.dir==="desc" ? "maiores altas" : "maiores baixas";
     summaryEl.innerHTML =
       `<b>${idx.nome}</b> · ordenado por <b>${D.periodos[per]}</b> (${rotDir}) · `
-      + `${totalComDado} ações com histórico · mostrando ${linhas.length}.`;
+      + `${totalComDado} ativos com histórico · mostrando ${linhas.length}.`;
   }
 
   // ---- Modo VOLUME (visão dedicada) ----
@@ -436,7 +439,7 @@
     }
     summaryEl.innerHTML =
       `<b>${idx.nome}</b> · análise de volume · ordenado por <b>${ordLabel}</b> (${rotDir}) · `
-      + `${totalComDado} ações com dado · mostrando ${linhas.length}.`;
+      + `${totalComDado} ativos com dado · mostrando ${linhas.length}.`;
   }
 
   document.getElementById("footer").innerHTML =

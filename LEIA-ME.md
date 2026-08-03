@@ -5,7 +5,11 @@ diferentes janelas de tempo: 7 dias, 15 dias, 30 dias, 2 meses, 3 meses, 6 meses
 e 1 ano. Os dados vêm do **Yahoo Finance** (fechamento ajustado por proventos).
 
 Índices cobertos: **IBOV** (Ibovespa), **IBXX** (IBrX 100),
-**IDIV** (Dividendos) e **SMLL** (Small Caps).
+**IDIV** (Dividendos), **SMLL** (Small Caps) e **IFIX** (Fundos Imobiliários).
+
+> O **IFIX** só aparece quando você o seleciona no menu de índice. Ele fica de
+> fora da opção **"Todos os índices de ações"** de propósito — FII e ação são
+> universos diferentes e não faz sentido rankeá-los na mesma lista.
 
 ---
 
@@ -74,7 +78,9 @@ substitua o antigo:
 3. Rode `python3 atualizar.py` de novo.
 
 Para adicionar um índice novo, basta o CSV correspondente estar em `carteiras/`
-e registrar o prefixo dele no dicionário `INDICES` dentro de `atualizar.py`.
+e registrar o prefixo dele no dicionário `INDICES` dentro de `atualizar.py`. Se
+o índice não deve entrar no "Todos" (caso do IFIX), acrescente
+`"fora_de_todos": True` no registro dele.
 
 ---
 
