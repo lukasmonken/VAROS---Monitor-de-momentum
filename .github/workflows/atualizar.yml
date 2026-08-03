@@ -1,4 +1,4 @@
-name: Atualizar dados do monitor
+name: Publicar o monitor
 
 # Quando rodar:
 on:
@@ -6,15 +6,28 @@ on:
     # 22:30 UTC = 19:30 no horário de Brasília, de segunda a sexta.
     # (após o fechamento da B3, com os dados do dia já consolidados)
     - cron: "30 22 * * 1-5"
-  workflow_dispatch: {}   # permite também rodar manualmente pelo botão do GitHub
+  push:
+    branches: [main]      # publica também a cada mudança no código
+  workflow_dispatch: {}   # e permite rodar na mão pelo botão do GitHub
 
-# O robô precisa poder gravar o dados.js atualizado de volta no repositório.
+# Permissões para publicar no GitHub Pages. Repare que "contents" é só de
+# leitura: este fluxo NÃO escreve mais nada de volta no repositório.
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
+
+# Se duas execuções coincidirem (o cron e um push), a mais nova vence.
+concurrency:
+  group: pages
+  cancel-in-progress: true
 
 jobs:
-  atualizar:
+  publicar:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.publicar.outputs.page_url }}
     steps:
       - name: Baixar o repositório
         uses: actions/checkout@v4
@@ -30,14 +43,24 @@ jobs:
       - name: Rodar o atualizador (consulta o Yahoo e gera dados.js)
         run: python atualizar.py
 
-      - name: Publicar os dados atualizados
+      # Monta a pasta que vai para o ar. Os dados vivem só aqui dentro, durante
+      # a execução — não entram no repositório. É isso que acaba com o conflito
+      # diário no dados.js.
+      - name: Montar o site
         run: |
-          git config user.name  "github-actions"
-          git config user.email "github-actions@github.com"
-          git add dados.js dados.json
-          if git diff --staged --quiet; then
-            echo "Nenhuma mudança nos dados hoje."
-          else
-            git commit -m "Atualiza dados do monitor ($(date -u +%d/%m/%Y))"
-            git push
-          fi
+          mkdir -p _site
+          cp index.html dados.js dados.json .nojekyll _site/
+          cp -r assets _site/
+          ls -la _site
+
+      - name: Preparar o Pages
+        uses: actions/configure-pages@v5
+
+      - name: Empacotar
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Publicar
+        id: publicar
+        uses: actions/deploy-pages@v4
