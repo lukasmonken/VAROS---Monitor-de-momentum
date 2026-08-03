@@ -7,7 +7,8 @@ Monitor de Momentum — atualizador de dados (VAROS)
 O que este script faz:
   1. Lê as carteiras dos índices na pasta ./carteiras (arquivos CSV da B3).
   2. Consulta o Yahoo Finance o histórico de preços de cada ação.
-  3. Calcula quanto cada ação subiu/caiu em 1d, 7d, 15d, 30d, 2m, 3m, 6m e 1 ano.
+  3. Calcula quanto cada ação subiu/caiu em 1 dia, na semana e no mês correntes,
+     e em 1, 2, 3, 6 meses e 1 ano.
   4. Grava tudo em "dados.js", que é lido pela interface (index.html).
 
 Como usar:
@@ -57,21 +58,45 @@ INDICES = {
              "fora_de_todos": True},
 }
 
-# Períodos de momentum. A função recebe a última data disponível e devolve
-# a data-alvo lá atrás; comparamos o fechamento de hoje com o de lá.
+# Períodos de momentum. A função recebe a última data disponível e devolve a
+# data-alvo lá atrás; comparamos o fechamento de hoje com o do último pregão
+# ANTERIOR a essa data-alvo. Essa regra do "pregão anterior" é o que faz tudo
+# funcionar sozinho em fim de semana e feriado.
 #
-# "1d" = variação do último pregão. Como a busca pega o último fechamento
-# ANTERIOR à data-alvo, pedir "ontem" devolve sempre o pregão anterior de
-# verdade — resolve fim de semana e feriado sozinho (segunda compara com sexta).
+# Três deles são ancorados no calendário, e não numa quantidade de dias:
+#   "sem" — do fechamento da última sexta até hoje (a semana em que estamos).
+#           Alvo = domingo desta semana, que cai no fechamento de sexta.
+#   "mes" — do último pregão do mês passado até hoje (o mês em que estamos).
+#           Alvo = último dia do mês anterior.
+#   "1m"  — mesmo dia do mês passado até hoje. É o irmão de "2 meses" e
+#           "3 meses"; substituiu os antigos "30 dias corridos".
+def _inicio_semana(d):
+    """Domingo que antecede a semana corrente — cai no fechamento de sexta."""
+    return d - timedelta(days=d.weekday() + 1)
+
+
+def _fim_mes_passado(d):
+    """Último dia do mês anterior — cai no último pregão daquele mês."""
+    return d.replace(day=1) - timedelta(days=1)
+
+
 PERIODOS = {
-    "1d":  ("1 dia",   lambda d: d - timedelta(days=1)),
-    "7d":  ("7 dias",  lambda d: d - timedelta(days=7)),
-    "15d": ("15 dias", lambda d: d - timedelta(days=15)),
-    "30d": ("30 dias", lambda d: d - timedelta(days=30)),
-    "2m":  ("2 meses", lambda d: d - relativedelta(months=2)),
-    "3m":  ("3 meses", lambda d: d - relativedelta(months=3)),
-    "6m":  ("6 meses", lambda d: d - relativedelta(months=6)),
-    "1a":  ("1 ano",   lambda d: d - relativedelta(years=1)),
+    "1d":  ("1 dia",     "Fechamento de hoje contra o do pregão anterior",
+            lambda d: d - timedelta(days=1)),
+    "sem": ("Semana",    "Do fechamento da última sexta até hoje — a semana corrente",
+            _inicio_semana),
+    "mes": ("Mês atual", "Do fechamento do último pregão do mês passado até hoje — o mês corrente",
+            _fim_mes_passado),
+    "1m":  ("1 mês",     "Do mesmo dia do mês passado até hoje",
+            lambda d: d - relativedelta(months=1)),
+    "2m":  ("2 meses",   "Do mesmo dia de dois meses atrás até hoje",
+            lambda d: d - relativedelta(months=2)),
+    "3m":  ("3 meses",   "Do mesmo dia de três meses atrás até hoje",
+            lambda d: d - relativedelta(months=3)),
+    "6m":  ("6 meses",   "Do mesmo dia de seis meses atrás até hoje",
+            lambda d: d - relativedelta(months=6)),
+    "1a":  ("1 ano",     "Do mesmo dia do ano passado até hoje",
+            lambda d: d - relativedelta(years=1)),
 }
 
 # A série de fechamentos de cada ação vai inteira para o dados.js, alinhada a
@@ -225,7 +250,7 @@ def calcular_retornos(serie: pd.Series,
 
     retornos: dict[str, float | None] = {}
     motivos: dict[str, str] = {}
-    for chave, (_rotulo, calc_data) in PERIODOS.items():
+    for chave, (_rotulo, _desc, calc_data) in PERIODOS.items():
         alvo = pd.Timestamp(calc_data(data_atual))
         # Último pregão <= data-alvo (resolve feriado/fim de semana). Precisamos
         # da posição, e não só do preço, para saber a data-base do período.
@@ -387,6 +412,9 @@ def main() -> None:
         "atualizado_em": datetime.now().strftime("%d/%m/%Y %H:%M"),
         "data_pregao": data_ref,
         "periodos": {k: v[0] for k, v in PERIODOS.items()},
+        # Explicação de cada período, para o title da coluna na interface —
+        # "Semana", "Mês atual" e "1 mês" são fáceis de confundir entre si.
+        "periodos_desc": {k: v[1] for k, v in PERIODOS.items()},
         # Eixo de datas comum a todas as séries (só dias de pregão).
         "datas": [d.strftime("%Y-%m-%d") for d in close.index],
         "ativos": ativos,

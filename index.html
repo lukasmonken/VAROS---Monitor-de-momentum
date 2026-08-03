@@ -199,7 +199,7 @@
 <script>
 (function(){
   const D = window.DADOS_MOMENTUM;
-  const ORDEM_PERIODOS = ["1d","7d","15d","30d","2m","3m","6m","1a"];
+  const ORDEM_PERIODOS = ["1d","sem","mes","1m","2m","3m","6m","1a"];
   const PONTOS_SPARK = 130;          // ~6 meses de pregões no mini-gráfico
 
   // Nada pode tocar em D antes desta guarda, senão a mensagem de arquivo
@@ -240,7 +240,7 @@
   const estado = {
     modo: "momentum",      // "momentum" | "volume"
     indice: "TODOS",
-    periodo: "30d",        // um de ORDEM_PERIODOS ou "custom"
+    periodo: "1m",         // um de ORDEM_PERIODOS ou "custom"
     dir: "desc",           // desc = maiores altas / maior volume
     sortCampo: "retorno",  // "retorno" (usa periodo) ou "volume"
     topN: 20,
@@ -279,6 +279,7 @@
     const b = document.createElement("button");
     b.dataset.p = p;
     b.textContent = D.periodos[p] || p;
+    b.title = descPeriodo(p);
     if(p===estado.periodo) b.classList.add("on");
     b.onclick = ()=>{
       estado.periodo=p; ultimoPeriodoFixo=p;
@@ -298,7 +299,7 @@
       // selecionada, desliga e devolve o período que estava antes.
       if(estado.custom && estado.periodo==="custom"){
         estado.custom = false;
-        estado.periodo = ultimoPeriodoFixo;
+        estado.periodo = ultimoPeriodoFixo || "1m";
       } else {
         estado.custom = true;
         estado.periodo = "custom";
@@ -472,6 +473,15 @@
   const rotuloPeriodoLongo = p => p==="custom"
     ? `${brDate(estado.de)} a ${brDate(estado.ate)}`
     : (D.periodos[p] || p);
+  // O que o período mede, para o title do botão e da coluna. "Semana",
+  // "Mês atual" e "1 mês" são próximos demais para o rótulo se explicar sozinho.
+  // Função declarada de propósito: os botões de período são montados antes
+  // desta linha e precisam dela já disponível.
+  function descPeriodo(p){
+    return p==="custom"
+      ? `Do fechamento mais próximo de ${brDate(estado.de)} até ${brDate(estado.ate)}`
+      : ((D.periodos_desc||{})[p] || D.periodos[p] || p);
+  }
   // Colunas de retorno da tabela: as fixas, mais a de intervalo quando ligada.
   const colunas = () => estado.custom ? ORDEM_PERIODOS.concat(["custom"]) : ORDEM_PERIODOS;
   const retornoDe = (a, p) => p==="custom" ? (custom(a).v ?? null) : a.retornos[p];
@@ -624,7 +634,7 @@
     cols.forEach(p=>{
       const sel = p===per ? " sel" : "";
       const arw = p===per ? `<span class="arw"> ${seta}</span>` : "";
-      th += `<th class="col${sel}" data-p="${p}" title="${rotuloPeriodoLongo(p)}">`
+      th += `<th class="col${sel}" data-p="${p}" title="${escapar(descPeriodo(p))}">`
           + `${rotuloPeriodo(p)}${arw}</th>`;
     });
     th += `</tr>`;
@@ -716,6 +726,9 @@
   document.getElementById("footer").innerHTML =
     "Retornos calculados sobre o preço de fechamento ajustado (proventos e desdobramentos) do Yahoo Finance. "
     + "\"1 dia\" compara o último pregão com o anterior (na segunda, portanto, com a sexta). "
+    + "\"Semana\" e \"Mês atual\" são ancorados no calendário — partem do fechamento da última "
+    + "sexta e do último pregão do mês passado —, enquanto \"1 mês\" parte do mesmo dia do mês "
+    + "anterior. "
     + "Em \"Datas…\", cada ponta do intervalo usa o fechamento do pregão mais próximo para trás — "
     + "se a data escolhida cair em fim de semana ou feriado, vale o último pregão antes dela. "
     + "Volume relativo = média dos últimos 5 pregões ÷ média dos ~60 pregões anteriores. "

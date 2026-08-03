@@ -1,9 +1,20 @@
 # Monitor de Momentum — B3 (VAROS)
 
 Ferramenta para ver **quais ações de um índice mais subiram (ou caíram)** em
-diferentes janelas de tempo: 1 dia, 7 dias, 15 dias, 30 dias, 2 meses, 3 meses,
-6 meses e 1 ano — ou em **um intervalo de datas que você escolhe**. Os dados vêm
-do **Yahoo Finance** (fechamento ajustado por proventos).
+diferentes janelas de tempo — ou em **um intervalo de datas que você escolhe**.
+Os dados vêm do **Yahoo Finance** (fechamento ajustado por proventos).
+
+| Período | O que mede |
+|---------|------------|
+| 1 dia | fechamento de hoje contra o do pregão anterior |
+| **Semana** | do fechamento da **última sexta** até hoje — a semana em que estamos |
+| **Mês atual** | do fechamento do **último pregão do mês passado** até hoje — o mês em que estamos |
+| **1 mês** | do **mesmo dia do mês passado** até hoje |
+| 2, 3, 6 meses e 1 ano | do mesmo dia daquele mês/ano até hoje |
+
+"Semana" e "Mês atual" são ancorados no calendário: no primeiro pregão do mês,
+os dois mostram o mesmo número, e numa segunda-feira "Semana" coincide com
+"1 dia". Não é erro — é o que essas janelas significam.
 
 Índices cobertos: **IBOV** (Ibovespa), **IBXX** (IBrX 100),
 **IDIV** (Dividendos), **SMLL** (Small Caps) e **IFIX** (Fundos Imobiliários).
@@ -164,8 +175,11 @@ registro.
 - Os retornos usam **fechamento ajustado** (proventos e desdobramentos já
   embutidos), que é a forma correta de medir momentum de retorno total.
 - Cada período compara o **último pregão** com o pregão **mais próximo** da
-  data-alvo (resolve feriados e fins de semana automaticamente). "1 dia" é a
-  variação do último pregão contra o anterior — numa segunda, contra a sexta.
+  data-alvo (resolve feriados e fins de semana automaticamente). É por isso que
+  "1 dia" numa segunda compara com a sexta, e que "Semana" e "Mês atual" caem no
+  último pregão útil da semana/mês anterior mesmo quando a virada foi num
+  feriado. Passe o mouse no botão ou no cabeçalho da coluna para ver o que cada
+  período mede.
 - **Intervalo de datas ("Datas…")**: compara duas datas quaisquer dentro do
   histórico disponível (cerca de 1 ano). Cada ponta usa o fechamento do pregão
   mais próximo **para trás**, então escolher um sábado vale a sexta. Datas fora
