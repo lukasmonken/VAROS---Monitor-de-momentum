@@ -210,6 +210,21 @@
     return;
   }
 
+  // O dados.js pode vir do cache numa versão anterior à desta página. Quando
+  // isso acontece, os períodos que a tabela espera não existem no arquivo e
+  // tudo aparece vazio, com os rótulos caindo no nome técnico ("sem", "1m").
+  // Dizer isso é melhor do que exibir uma tela quebrada sem explicação.
+  const periodosFaltando = ORDEM_PERIODOS.filter(p => !(D.periodos||{})[p]);
+  if(periodosFaltando.length){
+    document.getElementById("sub").innerHTML =
+      "O arquivo de dados no cache do navegador é de uma versão anterior desta página, "
+      + "então a tabela viria incompleta. Recarregue com <b>Cmd+Shift+R</b> "
+      + "(ou Ctrl+Shift+R no Windows). Se você roda local, gere os dados de novo com "
+      + "<b>python3 atualizar.py</b>.";
+    document.getElementById("badge").textContent = "versão desencontrada";
+    return;
+  }
+
   const DATAS = D.datas || [];       // eixo de datas comum (ISO, crescente)
 
   // Cada ativo é um objeto só, guardado em D.ativos; os índices carregam apenas
