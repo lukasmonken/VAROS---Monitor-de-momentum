@@ -100,13 +100,34 @@ Do mais simples ao mais robusto:
    por uma URL e sempre vê a mesma versão. Se hospedar num servidor de verdade, o
    `index.html` também consegue ler o `dados.json` via `fetch`.
 
-3. **Atualização automática**: agende o `atualizar.py` para rodar sozinho todo
-   dia após o fechamento (via `cron` no Mac/Linux, Agendador de Tarefas no
-   Windows, ou uma GitHub Action). Aí ninguém precisa mais rodar nada — o link
-   fica sempre atualizado.
+3. **Atualização automática** — é o que está no ar hoje. A GitHub Action
+   `.github/workflows/atualizar.yml` roda todo dia útil às 19h30 (horário de
+   Brasília), busca as cotações, monta o site e publica no GitHub Pages.
+   Ninguém precisa rodar nada.
 
-Para momentum de 7 dias a 1 ano, **atualizar uma vez por dia é mais que
+Para momentum de 1 dia a 1 ano, **atualizar uma vez por dia é mais que
 suficiente** — por isso não vale a pena montar um servidor rodando o tempo todo.
+
+### Como a publicação funciona
+
+O `dados.js` **não é versionado**. Quem o gera é a Action, na hora de publicar:
+ela roda o `atualizar.py`, junta o resultado com o `index.html` e o `assets/`
+numa pasta temporária, e manda essa pasta para o Pages.
+
+```
+   main  ─────►  [Action: roda o atualizar.py e monta o site]  ─────►  site no ar
+   (só código)          (os dados existem só aqui)
+```
+
+Antes, a Action commitava o `dados.js` no repositório todo pregão. Funcionava,
+mas qualquer branch aberta há mais de um dia colidia com esses commits e dava
+conflito na hora de mergear. Tirando os dados do controle de versão, o problema
+some pela raiz. O preço é não ter mais o histórico do que o site mostrou em cada
+dia — o que aqui não faz falta, porque a ferramenta é de acompanhamento, não de
+registro.
+
+> Se o Pages precisar ser reconfigurado algum dia: **Settings → Pages → Source
+> = GitHub Actions** (e não "Deploy from a branch").
 
 ---
 
@@ -116,8 +137,8 @@ suficiente** — por isso não vale a pena montar um servidor rodando o tempo to
 |--------------------|----------------------------------------------------------------|
 | `atualizar.py`     | Script que busca os dados e calcula o momentum (você roda).     |
 | `index.html`       | A interface. Abra no navegador.                                 |
-| `dados.js`         | Dados gerados pelo `atualizar.py` (lido pelo `index.html`). Carrega a série de fechamentos de cada ativo, que é o que permite o intervalo de datas. ~630 KB, ~220 KB comprimido no ar. |
-| `dados.json`       | Mesmos dados em JSON, para quem for hospedar num servidor.       |
+| `dados.js`         | Dados gerados pelo `atualizar.py` (lido pelo `index.html`). Carrega a série de fechamentos de cada ativo, que é o que permite o intervalo de datas. ~630 KB, ~220 KB comprimido no ar. **Não vai para o git** — veja "Como a publicação funciona". |
+| `dados.json`       | Mesmos dados em JSON, para quem for hospedar num servidor. Também fora do git. |
 | `carteiras/`       | CSVs de composição dos índices baixados da B3.                  |
 | `assets/`          | Fonte Instrument Sans embutida (identidade visual VAROS). **Mantenha junto.** |
 | `requirements.txt` | Bibliotecas Python necessárias.                                 |

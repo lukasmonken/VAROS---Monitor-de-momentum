@@ -3,3 +3,14 @@ __pycache__/
 *.pyc
 .DS_Store
 .claude/
+
+# Dados gerados pelo atualizar.py. Não são versionados de propósito: quem
+# publica o site é a GitHub Action, que gera os arquivos na hora. Versioná-los
+# obrigava o robô a commitar todo pregão, e isso conflitava com qualquer branch
+# aberta há mais de um dia. Localmente eles continuam sendo criados normalmente
+# — é só rodar  python3 atualizar.py.
+dados.js
+dados.json
+
+# Pasta temporária que a Action monta para publicar.
+_site/
