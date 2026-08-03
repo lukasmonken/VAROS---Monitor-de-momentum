@@ -51,6 +51,14 @@ jobs:
           mkdir -p _site
           cp index.html dados.js dados.json .nojekyll _site/
           cp -r assets _site/
+          # Carimba a versão na referência ao dados.js. Sem isso o navegador
+          # cacheia os dois arquivos de forma independente e pode juntar um
+          # index.html novo com um dados.js velho — a página então pede
+          # períodos que o arquivo antigo não tem e a tabela vem vazia.
+          # Com o carimbo, cada versão do index.html só consegue pedir o
+          # dados.js que veio junto com ela.
+          sed -i 's|src="dados\.js"|src="dados.js?v=${{ github.run_id }}"|' _site/index.html
+          grep -o 'src="dados\.js[^"]*"' _site/index.html
           ls -la _site
 
       - name: Preparar o Pages
