@@ -78,6 +78,13 @@
 
   .summary{color:var(--muted); font-size:12.5px; margin:2px 2px 12px}
   .summary b{color:var(--txt); font-weight:600}
+  /* Aviso de ativo sem retorno no período (quebra de série / sem histórico) */
+  .aviso{
+    margin-top:8px; padding:9px 12px; border-radius:9px;
+    background:rgba(229,72,77,.08); border:1px solid rgba(229,72,77,.28);
+    color:var(--axis); font-size:12.5px; line-height:1.5;
+  }
+  .aviso b{color:var(--txt)}
 
   .tablewrap{border:1px solid var(--border); border-radius:14px; overflow:auto; background:var(--panel)}
   table{border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums}
@@ -101,6 +108,8 @@
   .nm{color:var(--muted); font-size:12px}
   .price{color:var(--txt)}
   .up{color:var(--up-bright)} .down{color:var(--down)} .na{color:#4d5158}
+  .quebra{color:var(--down); cursor:help; font-weight:700}   /* célula anulada por quebra de série */
+  td[title]{cursor:help}
   .cellbar{position:relative}
   .cellbar .bar{position:absolute; top:0; bottom:0; right:0; opacity:.20}
   .cellbar .val{position:relative}
@@ -423,21 +432,35 @@
     }
     return res;
   }
-  // Fechamento da ação naquela posição, andando para trás enquanto não houver
-  // negócio (feriado do papel, ação ainda não listada, etc.).
-  function fechamentoEm(a, pos){
-    if(pos<0 || !a.serie || !a.serie.length) return null;
+  // Posição do fechamento válido mais recente até `pos`, andando para trás
+  // enquanto não houver negócio (feriado do papel, ação ainda não listada).
+  function idxFechamento(a, pos){
+    if(pos<0 || !a.serie || !a.serie.length) return -1;
     for(let i=Math.min(pos, a.serie.length-1); i>=0; i--){
-      if(a.serie[i]!=null) return a.serie[i];
+      if(a.serie[i]!=null) return i;
     }
-    return null;
+    return -1;
   }
-  function retornoCustom(a){
-    if(!estado.de || !estado.ate) return null;
-    const p0 = fechamentoEm(a, posPregao(estado.de));
-    const p1 = fechamentoEm(a, posPregao(estado.ate));
-    if(p0==null || p1==null || p0===0) return null;
-    return p1/p0 - 1;
+  // Devolve {v} quando dá para calcular, ou {erro} dizendo por que não dá.
+  // Nunca devolve um número quando o número seria mentira.
+  function calcularCustom(a){
+    if(!estado.de || !estado.ate) return {erro:"sem-historico"};
+    const i0 = idxFechamento(a, posPregao(estado.de));
+    const i1 = idxFechamento(a, posPregao(estado.ate));
+    if(i0 < 0 || i1 < 0) return {erro:"sem-historico"};
+    const d0 = DATAS[i0], d1 = DATAS[i1];
+    // Preços dos dois lados de uma quebra não são comparáveis.
+    if((a.quebras||[]).some(q => q > d0 && q <= d1)) return {erro:"quebra"};
+    const p0 = a.serie[i0], p1 = a.serie[i1];
+    if(!p0) return {erro:"sem-historico"};
+    return {v: p1/p0 - 1};
+  }
+  // Recalcular por ativo a cada ordenação sairia caro; o cache vale por render.
+  let cacheCustom = new Map();
+  function custom(a){
+    let r = cacheCustom.get(a.ticker);
+    if(r === undefined){ r = calcularCustom(a); cacheCustom.set(a.ticker, r); }
+    return r;
   }
   const brDate = iso => iso ? iso.slice(8,10)+"/"+iso.slice(5,7)+"/"+iso.slice(0,4) : "—";
   // Rótulo curto da coluna (o cabeçalho é apertado) — a data cheia vai no title.
@@ -451,15 +474,43 @@
     : (D.periodos[p] || p);
   // Colunas de retorno da tabela: as fixas, mais a de intervalo quando ligada.
   const colunas = () => estado.custom ? ORDEM_PERIODOS.concat(["custom"]) : ORDEM_PERIODOS;
-  const retornoDe = (a, p) => p==="custom" ? retornoCustom(a) : a.retornos[p];
+  const retornoDe = (a, p) => p==="custom" ? (custom(a).v ?? null) : a.retornos[p];
+  // Por que a célula ficou sem valor: "quebra" ou "sem-historico".
+  const motivoDe  = (a, p) => p==="custom" ? (custom(a).erro || null)
+                                           : ((a.motivos||{})[p] || null);
 
-  // Últimos N fechamentos existentes, para o mini-gráfico (calculado uma vez
-  // por ação e guardado no próprio objeto).
+  const escapar = s => String(s).replace(/&/g,"&amp;").replace(/"/g,"&quot;")
+                                .replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  function textoMotivo(a, motivo){
+    if(motivo==="quebra"){
+      const qs = (a.quebras||[]).map(brDate).join(" e ");
+      return `${a.ticker}: a série tem quebra em ${qs} — grupamento ou desdobramento `
+           + `que o Yahoo não ajustou para trás, ou cotação inconsistente. Os preços `
+           + `dos dois lados dessa data não são comparáveis, então este período fica `
+           + `sem valor em vez de mostrar um número errado.`;
+    }
+    if(motivo==="sem-historico"){
+      const pr = a.primeiro_pregao ? brDate(a.primeiro_pregao) : null;
+      return pr ? `${a.ticker}: não tem cotação em toda a janela — o primeiro pregão `
+                + `disponível é ${pr}.`
+                : `${a.ticker}: sem cotação disponível para este período.`;
+    }
+    return "";
+  }
+
+  // Últimos N fechamentos existentes, para o mini-gráfico. Pontos anteriores à
+  // última quebra ficam de fora: misturar as duas escalas no mesmo desenho
+  // produziria um gráfico tão enganoso quanto o retorno que anulamos.
   function pontosSpark(a){
     if(a._spark) return a._spark;
-    const out=[];
     const s = a.serie || [];
-    for(let i=s.length-1; i>=0 && out.length<PONTOS_SPARK; i--){
+    let piso = 0;
+    for(const q of (a.quebras||[])){
+      const i = posPregao(q);
+      if(i >= 0 && i > piso) piso = i;
+    }
+    const out=[];
+    for(let i=s.length-1; i>=piso && out.length<PONTOS_SPARK; i--){
       if(s[i]!=null) out.push(s[i]);
     }
     return (a._spark = out.reverse());
@@ -483,10 +534,37 @@
   const celAtivo = a => `<td class="lft"><span class="tk">${a.ticker}</span><br>`
                       + `<span class="nm">${a.nome||""}</span></td>`;
 
+  // Lista de tickers para a mensagem de aviso, sem virar um parágrafo.
+  function listar(tks){
+    if(tks.length<=4) return tks.join(", ");
+    return tks.slice(0,4).join(", ") + ` e mais ${tks.length-4}`;
+  }
+  // Aviso visível quando algum ativo do universo filtrado ficou sem valor no
+  // período — sem isso, a ausência passa por "retorno baixo" e engana.
+  function montarAviso(universo, per){
+    const sem = [], quebrados = [];
+    for(const a of universo){
+      if(retornoDe(a, per) != null) continue;
+      const m = motivoDe(a, per);
+      if(m === "quebra") quebrados.push(a.ticker);
+      else if(m === "sem-historico") sem.push(a.ticker);
+    }
+    if(!sem.length && !quebrados.length) return "";
+    const partes = [];
+    if(quebrados.length)
+      partes.push(`<b>${quebrados.length}</b> com quebra de série (${listar(quebrados)})`);
+    if(sem.length)
+      partes.push(`<b>${sem.length}</b> sem histórico em toda a janela (${listar(sem)})`);
+    return `<div class="aviso">⚠ ${partes.join(" · ")} — ${quebrados.length+sem.length===1?"fica":"ficam"} `
+         + `fora do ranking de <b>${rotuloPeriodoLongo(per)}</b>, sem valor calculado. `
+         + `Passe o mouse sobre o ⚠ ou o — na linha do ativo para ver o motivo.</div>`;
+  }
+
   // --- Render principal ---
   function render(){
     const idx = INDICES[estado.indice];
     const per = estado.periodo;
+    cacheCustom = new Map();   // as datas podem ter mudado desde o último render
 
     // Filtro de busca: vários termos separados por vírgula ("VAMO3, KLBN11"),
     // basta casar com um deles.
@@ -509,17 +587,32 @@
     });
 
     const totalComDado = linhas.filter(a=>valorOrd(a)!=null).length;
+    // O aviso olha o universo filtrado INTEIRO, não só as linhas visíveis: um
+    // ativo sem valor cai para o fim da ordenação e sumiria no corte do Top N,
+    // que é justamente quando o usuário mais precisa saber que ele existe.
+    const aviso = estado.sortCampo==="volume" ? "" : montarAviso(linhas, per);
+
     // Com uma lista explícita de ativos (busca com vírgulas), mostra todos os
     // que casaram — cortar em Top 20 esconderia justamente o que foi pedido.
     const limite = termos.length>1 ? linhas.length : estado.topN;
     linhas = linhas.slice(0, limite);
 
-    if(estado.modo==="volume") renderVolume(idx, per, linhas, totalComDado);
-    else renderMomentum(idx, per, linhas, totalComDado);
+    if(estado.modo==="volume") renderVolume(idx, per, linhas, totalComDado, aviso);
+    else renderMomentum(idx, per, linhas, totalComDado, aviso);
+  }
+
+  // Célula de retorno. Sem valor, mostra o porquê no lugar de um traço mudo.
+  function celRetorno(a, p, extraClasse){
+    const r = retornoDe(a, p);
+    const m = r==null ? motivoDe(a, p) : null;
+    const titulo = m ? ` title="${escapar(textoMotivo(a, m))}"` : "";
+    const texto = m==="quebra" ? "⚠" : fmtPct(r);
+    const cls = (m==="quebra" ? "quebra" : classe(r)) + (extraClasse ? " "+extraClasse : "");
+    return {cls, titulo, texto, r};
   }
 
   // ---- Modo MOMENTUM (tabela limpa, sem volume) ----
-  function renderMomentum(idx, per, linhas, totalComDado){
+  function renderMomentum(idx, per, linhas, totalComDado, aviso){
     const seta = estado.dir==="desc" ? "▼" : "▲";
 
     const cols = colunas();
@@ -549,14 +642,14 @@
                 + `<td class="lft">${sparkline(pontosSpark(a))}</td>`
                 + `<td class="price">${fmtPreco(a.preco)}</td>`;
         cols.forEach(p=>{
-          const r = retornoDe(a, p);
+          const c = celRetorno(a, p);
           if(p===per){
-            const w = r==null ? 0 : Math.min(100, Math.abs(r)/maxAbs*100);
-            const barcor = r==null ? "transparent" : (r>=0? "var(--up)":"var(--down)");
-            tds += `<td class="sel cellbar"><span class="bar" style="width:${w}%;background:${barcor}"></span>`
-                 + `<span class="val ${classe(r)}">${fmtPct(r)}</span></td>`;
+            const w = c.r==null ? 0 : Math.min(100, Math.abs(c.r)/maxAbs*100);
+            const barcor = c.r==null ? "transparent" : (c.r>=0? "var(--up)":"var(--down)");
+            tds += `<td class="sel cellbar"${c.titulo}><span class="bar" style="width:${w}%;background:${barcor}"></span>`
+                 + `<span class="val ${c.cls}">${c.texto}</span></td>`;
           } else {
-            tds += `<td class="${classe(r)}">${fmtPct(r)}</td>`;
+            tds += `<td class="${c.cls}"${c.titulo}>${c.texto}</td>`;
           }
         });
         return `<tr>${tds}</tr>`;
@@ -566,11 +659,12 @@
     const rotDir = estado.dir==="desc" ? "maiores altas" : "maiores baixas";
     summaryEl.innerHTML =
       `<b>${idx.nome}</b> · ordenado por <b>${rotuloPeriodoLongo(per)}</b> (${rotDir}) · `
-      + `${totalComDado} ativos com histórico · mostrando ${linhas.length}.`;
+      + `${totalComDado} ativos com histórico · mostrando ${linhas.length}.`
+      + aviso;
   }
 
   // ---- Modo VOLUME (visão dedicada) ----
-  function renderVolume(idx, per, linhas, totalComDado){
+  function renderVolume(idx, per, linhas, totalComDado, aviso){
     const seta = estado.dir==="desc" ? "▼" : "▲";
     const volSel = estado.sortCampo==="volume";
     const retSel = estado.sortCampo==="retorno";
@@ -593,14 +687,14 @@
       tbody.innerHTML = linhas.map((a,i)=>{
         const v = a.rvol;
         const w = v==null ? 0 : Math.min(100, v/3*100);   // barra escala até 3×
-        const r = retornoDe(a, per);
+        const c = celRetorno(a, per, retSel ? "sel" : "");
         return `<tr>
           <td class="lft rank">${i+1}</td>${celAtivo(a)}
           <td class="lft">${sparkline(pontosSpark(a))}</td>
           <td class="price">${fmtPreco(a.preco)}</td>
           <td class="volcell${volSel?" sel":""}"><span class="vbar" style="width:${w}%"></span><span class="vval ${classeVol(v)}">${fmtRvol(v)}</span></td>
           <td class="${a.vol_rs==null?"na":"price"}">${fmtVolRs(a.vol_rs)}</td>
-          <td class="${classe(r)}${retSel?" sel":""}">${fmtPct(r)}</td>
+          <td class="${c.cls}"${c.titulo}>${c.texto}</td>
         </tr>`;
       }).join("");
     }
@@ -615,7 +709,8 @@
     }
     summaryEl.innerHTML =
       `<b>${idx.nome}</b> · análise de volume · ordenado por <b>${ordLabel}</b> (${rotDir}) · `
-      + `${totalComDado} ativos com dado · mostrando ${linhas.length}.`;
+      + `${totalComDado} ativos com dado · mostrando ${linhas.length}.`
+      + aviso;
   }
 
   document.getElementById("footer").innerHTML =
@@ -624,6 +719,9 @@
     + "Em \"Datas…\", cada ponta do intervalo usa o fechamento do pregão mais próximo para trás — "
     + "se a data escolhida cair em fim de semana ou feriado, vale o último pregão antes dela. "
     + "Volume relativo = média dos últimos 5 pregões ÷ média dos ~60 pregões anteriores. "
+    + "Quando a série tem uma quebra (grupamento ou desdobramento não ajustado pela fonte, "
+    + "ou cotação inconsistente), os períodos que atravessam essa data aparecem como \"⚠\" "
+    + "em vez de um número — preços dos dois lados da quebra não são comparáveis. "
     + "Ferramenta de acompanhamento — não é recomendação de investimento.";
 
   render();
