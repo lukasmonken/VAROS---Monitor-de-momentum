@@ -7,7 +7,7 @@ Monitor de Momentum — atualizador de dados (VAROS)
 O que este script faz:
   1. Lê as carteiras dos índices na pasta ./carteiras (arquivos CSV da B3).
   2. Consulta o Yahoo Finance o histórico de preços de cada ação.
-  3. Calcula quanto cada ação subiu/caiu em 7d, 15d, 30d, 2m, 3m, 6m e 1 ano.
+  3. Calcula quanto cada ação subiu/caiu em 1d, 7d, 15d, 30d, 2m, 3m, 6m e 1 ano.
   4. Grava tudo em "dados.js", que é lido pela interface (index.html).
 
 Como usar:
@@ -59,7 +59,12 @@ INDICES = {
 
 # Períodos de momentum. A função recebe a última data disponível e devolve
 # a data-alvo lá atrás; comparamos o fechamento de hoje com o de lá.
+#
+# "1d" = variação do último pregão. Como a busca pega o último fechamento
+# ANTERIOR à data-alvo, pedir "ontem" devolve sempre o pregão anterior de
+# verdade — resolve fim de semana e feriado sozinho (segunda compara com sexta).
 PERIODOS = {
+    "1d":  ("1 dia",   lambda d: d - timedelta(days=1)),
     "7d":  ("7 dias",  lambda d: d - timedelta(days=7)),
     "15d": ("15 dias", lambda d: d - timedelta(days=15)),
     "30d": ("30 dias", lambda d: d - timedelta(days=30)),
@@ -69,8 +74,10 @@ PERIODOS = {
     "1a":  ("1 ano",   lambda d: d - relativedelta(years=1)),
 }
 
-# Quantos fechamentos guardar para desenhar o mini-gráfico (sparkline).
-PONTOS_SPARKLINE = 130  # ~6 meses de pregões
+# A série de fechamentos de cada ação vai inteira para o dados.js, alinhada a
+# um eixo de datas comum (campo "datas"). É isso que permite à interface
+# calcular a variação de um intervalo de datas qualquer escolhido pelo usuário,
+# além de desenhar o mini-gráfico (sparkline).
 
 # Volume relativo (surto de negociação): compara a média dos últimos
 # VOL_JANELA_RECENTE pregões com a média dos VOL_JANELA_BASE pregões anteriores.
@@ -176,16 +183,15 @@ def baixar_precos(tickers_yahoo: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]
 # 3) Calcular os retornos de momentum
 # --------------------------------------------------------------------------- #
 
-def calcular_retornos(serie: pd.Series) -> tuple[dict, float, list]:
+def calcular_retornos(serie: pd.Series) -> tuple[dict, float | None]:
     """
     Para uma série de preços de UMA ação, devolve:
       - retornos: {periodo: variação_decimal ou None}
       - preco_atual: último fechamento
-      - sparkline: últimos N fechamentos (para o mini-gráfico)
     """
     serie = serie.dropna()
     if serie.empty:
-        return {p: None for p in PERIODOS}, None, []
+        return {p: None for p in PERIODOS}, None
 
     data_atual = serie.index[-1]
     preco_atual = float(serie.iloc[-1])
@@ -204,8 +210,7 @@ def calcular_retornos(serie: pd.Series) -> tuple[dict, float, list]:
         else:
             retornos[chave] = round(preco_atual / float(preco_passado) - 1, 6)
 
-    sparkline = [round(float(v), 2) for v in serie.iloc[-PONTOS_SPARKLINE:]]
-    return retornos, round(preco_atual, 2), sparkline
+    return retornos, round(preco_atual, 2)
 
 
 def calcular_volume(vol: pd.Series, preco: pd.Series) -> tuple[float | None, float | None]:
@@ -272,15 +277,18 @@ def main() -> None:
         if col not in close.columns:
             sem_dados.append(t)
             por_ticker[t] = {"retornos": {p: None for p in PERIODOS},
-                             "preco": None, "spark": [], "rvol": None, "vol_rs": None}
+                             "preco": None, "serie": [], "rvol": None, "vol_rs": None}
             continue
-        retornos, preco, spark = calcular_retornos(close[col])
+        retornos, preco = calcular_retornos(close[col])
         rvol, vol_rs = (None, None)
         if col in volume.columns:
             rvol, vol_rs = calcular_volume(volume[col], close[col])
         if preco is None:
             sem_dados.append(t)
-        por_ticker[t] = {"retornos": retornos, "preco": preco, "spark": spark,
+        # Série alinhada ao eixo comum: None onde a ação não tem fechamento
+        # (ainda não existia, ou não negociou naquele pregão).
+        serie = [None if pd.isna(v) else round(float(v), 2) for v in close[col]]
+        por_ticker[t] = {"retornos": retornos, "preco": preco, "serie": serie,
                          "rvol": rvol, "vol_rs": vol_rs}
 
     # Monta a estrutura final por índice.
@@ -292,6 +300,8 @@ def main() -> None:
         "atualizado_em": datetime.now().strftime("%d/%m/%Y %H:%M"),
         "data_pregao": data_ref,
         "periodos": {k: v[0] for k, v in PERIODOS.items()},
+        # Eixo de datas comum a todas as séries (só dias de pregão).
+        "datas": [d.strftime("%Y-%m-%d") for d in close.index],
         "indices": {},
     }
     for cod, idx in indices.items():
@@ -303,7 +313,7 @@ def main() -> None:
                 "nome": nome,
                 "preco": d.get("preco"),
                 "retornos": d.get("retornos", {p: None for p in PERIODOS}),
-                "spark": d.get("spark", []),
+                "serie": d.get("serie", []),
                 "rvol": d.get("rvol"),
                 "vol_rs": d.get("vol_rs"),
             })

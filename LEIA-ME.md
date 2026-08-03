@@ -1,8 +1,9 @@
 # Monitor de Momentum — B3 (VAROS)
 
 Ferramenta para ver **quais ações de um índice mais subiram (ou caíram)** em
-diferentes janelas de tempo: 7 dias, 15 dias, 30 dias, 2 meses, 3 meses, 6 meses
-e 1 ano. Os dados vêm do **Yahoo Finance** (fechamento ajustado por proventos).
+diferentes janelas de tempo: 1 dia, 7 dias, 15 dias, 30 dias, 2 meses, 3 meses,
+6 meses e 1 ano — ou em **um intervalo de datas que você escolhe**. Os dados vêm
+do **Yahoo Finance** (fechamento ajustado por proventos).
 
 Índices cobertos: **IBOV** (Ibovespa), **IBXX** (IBrX 100),
 **IDIV** (Dividendos), **SMLL** (Small Caps) e **IFIX** (Fundos Imobiliários).
@@ -60,7 +61,9 @@ pip install -r requirements.txt
    período e veja o ranking. Dá para:
    - alternar entre **maiores altas** e **maiores baixas**;
    - clicar em qualquer coluna de período para reordenar por ela;
-   - buscar por ticker ou empresa;
+   - buscar por ticker ou empresa — e **vários de uma vez, separados por
+     vírgula** (`VAMO3, KLBN11, PETR4`), que vira uma mini-carteira na tela;
+   - clicar em **Datas…** para comparar duas datas quaisquer do último ano;
    - limitar a Top 10 / 20 / 50 ou ver todas.
 
 ---
@@ -113,7 +116,7 @@ suficiente** — por isso não vale a pena montar um servidor rodando o tempo to
 |--------------------|----------------------------------------------------------------|
 | `atualizar.py`     | Script que busca os dados e calcula o momentum (você roda).     |
 | `index.html`       | A interface. Abra no navegador.                                 |
-| `dados.js`         | Dados gerados pelo `atualizar.py` (lido pelo `index.html`).     |
+| `dados.js`         | Dados gerados pelo `atualizar.py` (lido pelo `index.html`). Carrega a série de fechamentos de cada ativo, que é o que permite o intervalo de datas. ~900 KB, ~270 KB comprimido no ar. |
 | `dados.json`       | Mesmos dados em JSON, para quem for hospedar num servidor.       |
 | `carteiras/`       | CSVs de composição dos índices baixados da B3.                  |
 | `assets/`          | Fonte Instrument Sans embutida (identidade visual VAROS). **Mantenha junto.** |
@@ -129,7 +132,7 @@ suficiente** — por isso não vale a pena montar um servidor rodando o tempo to
 ## Observações
 
 - **Duas análises (seletor "Análise"):**
-  - **Momentum** — a tabela limpa de retornos por período (7d a 1 ano).
+  - **Momentum** — a tabela limpa de retornos por período (1 dia a 1 ano).
   - **Volume** — visão dedicada, ordenada pelo **volume relativo**: o quanto a
     ação está sendo negociada acima do normal dela mesma (média dos últimos 5
     pregões ÷ média dos ~60 anteriores). `1,0×` = normal; `2,5×` = negociando
@@ -140,6 +143,14 @@ suficiente** — por isso não vale a pena montar um servidor rodando o tempo to
 - Os retornos usam **fechamento ajustado** (proventos e desdobramentos já
   embutidos), que é a forma correta de medir momentum de retorno total.
 - Cada período compara o **último pregão** com o pregão **mais próximo** da
-  data-alvo (resolve feriados e fins de semana automaticamente).
+  data-alvo (resolve feriados e fins de semana automaticamente). "1 dia" é a
+  variação do último pregão contra o anterior — numa segunda, contra a sexta.
+- **Intervalo de datas ("Datas…")**: compara duas datas quaisquer dentro do
+  histórico disponível (cerca de 1 ano). Cada ponta usa o fechamento do pregão
+  mais próximo **para trás**, então escolher um sábado vale a sexta. Datas fora
+  do histórico são puxadas para o limite, e datas invertidas são trocadas — nos
+  dois casos o próprio campo mostra a correção.
 - Ações com IPO recente aparecem com "—" nos períodos que ainda não existiam.
+- Buscar **vários tickers separados por vírgula** mostra todos os que casarem,
+  ignorando o limite de Top N — a ideia é ver a lista inteira que você pediu.
 - É uma ferramenta de **acompanhamento**, não recomendação de investimento.

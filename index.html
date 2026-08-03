@@ -43,13 +43,17 @@
   }
   .field{display:flex; flex-direction:column; gap:6px}
   .field label{font-size:11px; text-transform:uppercase; letter-spacing:.7px; color:var(--muted)}
-  select, input[type=search]{
+  select, input[type=search], input[type=date]{
     font-family:inherit; background:var(--panel2); color:var(--txt);
     border:1px solid var(--border); border-radius:9px; padding:9px 11px;
     font-size:13.5px; outline:none; min-width:150px;
+    color-scheme:dark;   /* faz o seletor nativo de data nascer escuro */
   }
   select:focus, input:focus{border-color:var(--accent)}
   select:hover, input:hover{border-color:#3a3a3a}
+  input[type=date]{min-width:135px}
+  .intervalo{display:flex; align-items:center; gap:8px}
+  .intervalo span{color:var(--muted); font-size:12.5px}
 
   .segmented{display:inline-flex; background:var(--panel2); border:1px solid var(--border); border-radius:9px; overflow:hidden}
   .segmented button{
@@ -138,6 +142,12 @@
       <label>Período</label>
       <div class="segmented" id="segPeriodo"></div>
     </div>
+    <div class="field" id="fieldIntervalo" hidden>
+      <label>Intervalo de datas</label>
+      <div class="intervalo">
+        <input type="date" id="dataDe"><span>até</span><input type="date" id="dataAte">
+      </div>
+    </div>
     <div class="field">
       <label>Ordenar por</label>
       <div class="toggle" id="segDir">
@@ -156,7 +166,7 @@
     </div>
     <div class="field" style="flex:1; min-width:180px">
       <label>Buscar</label>
-      <input type="search" id="busca" placeholder="ticker ou empresa…">
+      <input type="search" id="busca" placeholder="ticker ou empresa — separe por vírgula: VAMO3, KLBN11">
     </div>
   </div>
 
@@ -176,7 +186,9 @@
 <script>
 (function(){
   const D = window.DADOS_MOMENTUM;
-  const ORDEM_PERIODOS = ["7d","15d","30d","2m","3m","6m","1a"];
+  const ORDEM_PERIODOS = ["1d","7d","15d","30d","2m","3m","6m","1a"];
+  const PONTOS_SPARK = 130;          // ~6 meses de pregões no mini-gráfico
+  const DATAS = D.datas || [];       // eixo de datas comum (ISO, crescente)
 
   if(!D){
     document.getElementById("sub").textContent =
@@ -206,11 +218,13 @@
   const estado = {
     modo: "momentum",      // "momentum" | "volume"
     indice: "TODOS",
-    periodo: "30d",
+    periodo: "30d",        // um de ORDEM_PERIODOS ou "custom"
     dir: "desc",           // desc = maiores altas / maior volume
     sortCampo: "retorno",  // "retorno" (usa periodo) ou "volume"
     topN: 20,
     busca: "",
+    custom: false,         // coluna de intervalo de datas ligada?
+    de: null, ate: null,   // datas do intervalo (ISO)
   };
 
   const thead = document.getElementById("thead");
@@ -231,8 +245,12 @@
     selIndice.appendChild(o);
   }
 
-  // Botões de período
+  // Botões de período (+ "Personalizado", que liga a coluna de intervalo)
   const segPeriodo = document.getElementById("segPeriodo");
+  const fieldIntervalo = document.getElementById("fieldIntervalo");
+  const inpDe = document.getElementById("dataDe");
+  const inpAte = document.getElementById("dataAte");
+
   ORDEM_PERIODOS.forEach(p=>{
     const b = document.createElement("button");
     b.dataset.p = p;
@@ -245,6 +263,59 @@
     };
     segPeriodo.appendChild(b);
   });
+
+  if(DATAS.length>1){
+    const bc = document.createElement("button");
+    bc.dataset.p = "custom";
+    bc.textContent = "Datas…";
+    bc.title = "Escolher um intervalo de datas qualquer";
+    bc.onclick = ()=>{
+      // Funciona como interruptor: liga a coluna e a seleciona; desliga volta ao padrão.
+      if(estado.custom && estado.periodo==="custom"){
+        estado.custom = false;
+        estado.periodo = "30d";
+      } else {
+        estado.custom = true;
+        estado.periodo = "custom";
+        if(estado.modo==="momentum") estado.sortCampo="retorno";
+      }
+      fieldIntervalo.hidden = !estado.custom;
+      syncSeg(); render();
+    };
+    segPeriodo.appendChild(bc);
+
+    // Limites e valores iniciais: do primeiro ao último pregão disponível.
+    estado.ate = DATAS[DATAS.length-1];
+    estado.de  = DATAS.find(d => d >= recuarUmMes(estado.ate)) || DATAS[0];
+    [inpDe, inpAte].forEach(el=>{ el.min = DATAS[0]; el.max = DATAS[DATAS.length-1]; });
+    inpDe.value = estado.de;  inpAte.value = estado.ate;
+
+    const onData = ()=>{
+      const pri = DATAS[0], ult = DATAS[DATAS.length-1];
+      let de = inpDe.value || pri;
+      let ate = inpAte.value || ult;
+      // Se vierem invertidas, troca. Se caírem fora do histórico que temos,
+      // puxa para dentro. Nos dois casos o campo mostra a correção, para não
+      // deixar o usuário achando que a conta saiu errada.
+      if(de > ate) [de, ate] = [ate, de];
+      if(de < pri) de = pri;
+      if(ate > ult) ate = ult;
+      inpDe.value = de; inpAte.value = ate;
+      estado.de = de; estado.ate = ate;
+      if(!estado.custom){ estado.custom = true; fieldIntervalo.hidden = false; }
+      estado.periodo = "custom";
+      if(estado.modo==="momentum") estado.sortCampo="retorno";
+      syncSeg(); render();
+    };
+    inpDe.onchange = onData;
+    inpAte.onchange = onData;
+  }
+
+  function recuarUmMes(iso){
+    const d = new Date(iso+"T00:00:00");
+    d.setMonth(d.getMonth()-1);
+    return d.toISOString().slice(0,10);
+  }
   function syncSeg(){
     [...segPeriodo.children].forEach(b=>b.classList.toggle("on", b.dataset.p===estado.periodo));
   }
@@ -296,6 +367,58 @@
     return "R$ "+(v/1e3).toFixed(0)+" mil";
   }
 
+  // --- Intervalo de datas ---
+  // Posição do último pregão em data <= iso (busca binária no eixo comum).
+  function posPregao(iso){
+    let lo=0, hi=DATAS.length-1, res=-1;
+    while(lo<=hi){
+      const m=(lo+hi)>>1;
+      if(DATAS[m]<=iso){ res=m; lo=m+1; } else hi=m-1;
+    }
+    return res;
+  }
+  // Fechamento da ação naquela posição, andando para trás enquanto não houver
+  // negócio (feriado do papel, ação ainda não listada, etc.).
+  function fechamentoEm(a, pos){
+    if(pos<0 || !a.serie || !a.serie.length) return null;
+    for(let i=Math.min(pos, a.serie.length-1); i>=0; i--){
+      if(a.serie[i]!=null) return a.serie[i];
+    }
+    return null;
+  }
+  function retornoCustom(a){
+    if(!estado.de || !estado.ate) return null;
+    const p0 = fechamentoEm(a, posPregao(estado.de));
+    const p1 = fechamentoEm(a, posPregao(estado.ate));
+    if(p0==null || p1==null || p0===0) return null;
+    return p1/p0 - 1;
+  }
+  const brDate = iso => iso ? iso.slice(8,10)+"/"+iso.slice(5,7)+"/"+iso.slice(0,4) : "—";
+  // Rótulo curto da coluna (o cabeçalho é apertado) — a data cheia vai no title.
+  function rotuloPeriodo(p){
+    if(p!=="custom") return D.periodos[p] || p;
+    if(!estado.de || !estado.ate) return "Intervalo";
+    return brDate(estado.de).slice(0,5)+" → "+brDate(estado.ate).slice(0,5);
+  }
+  const rotuloPeriodoLongo = p => p==="custom"
+    ? `${brDate(estado.de)} a ${brDate(estado.ate)}`
+    : (D.periodos[p] || p);
+  // Colunas de retorno da tabela: as fixas, mais a de intervalo quando ligada.
+  const colunas = () => estado.custom ? ORDEM_PERIODOS.concat(["custom"]) : ORDEM_PERIODOS;
+  const retornoDe = (a, p) => p==="custom" ? retornoCustom(a) : a.retornos[p];
+
+  // Últimos N fechamentos existentes, para o mini-gráfico (calculado uma vez
+  // por ação e guardado no próprio objeto).
+  function pontosSpark(a){
+    if(a._spark) return a._spark;
+    const out=[];
+    const s = a.serie || [];
+    for(let i=s.length-1; i>=0 && out.length<PONTOS_SPARK; i--){
+      if(s[i]!=null) out.push(s[i]);
+    }
+    return (a._spark = out.reverse());
+  }
+
   function sparkline(pts){
     if(!pts || pts.length<2) return "";
     const W=84, H=24, pad=2;
@@ -319,15 +442,17 @@
     const idx = INDICES[estado.indice];
     const per = estado.periodo;
 
-    // Filtro de busca
+    // Filtro de busca: vários termos separados por vírgula ("VAMO3, KLBN11"),
+    // basta casar com um deles.
+    const termos = estado.busca.split(",").map(s=>s.trim()).filter(Boolean);
     let linhas = idx.acoes.filter(a=>{
-      if(!estado.busca) return true;
-      return a.ticker.toLowerCase().includes(estado.busca)
-          || (a.nome||"").toLowerCase().includes(estado.busca);
+      if(!termos.length) return true;
+      const tk = a.ticker.toLowerCase(), nm = (a.nome||"").toLowerCase();
+      return termos.some(t => tk.includes(t) || nm.includes(t));
     });
 
     // Valor de ordenação: retorno do período OU volume relativo.
-    const valorOrd = a => estado.sortCampo==="volume" ? a.rvol : a.retornos[per];
+    const valorOrd = a => estado.sortCampo==="volume" ? a.rvol : retornoDe(a, per);
     const dir = estado.dir==="desc" ? -1 : 1;
     linhas.sort((a,b)=>{
       const ra=valorOrd(a), rb=valorOrd(b);
@@ -338,7 +463,10 @@
     });
 
     const totalComDado = linhas.filter(a=>valorOrd(a)!=null).length;
-    linhas = linhas.slice(0, estado.topN);
+    // Com uma lista explícita de ativos (busca com vírgulas), mostra todos os
+    // que casaram — cortar em Top 20 esconderia justamente o que foi pedido.
+    const limite = termos.length>1 ? linhas.length : estado.topN;
+    linhas = linhas.slice(0, limite);
 
     if(estado.modo==="volume") renderVolume(idx, per, linhas, totalComDado);
     else renderMomentum(idx, per, linhas, totalComDado);
@@ -348,15 +476,17 @@
   function renderMomentum(idx, per, linhas, totalComDado){
     const seta = estado.dir==="desc" ? "▼" : "▲";
 
+    const cols = colunas();
     let th = `<tr>
       <th class="lft rank">#</th>
       <th class="lft">Ativo</th>
       <th class="lft">Tendência 6m</th>
       <th>Preço</th>`;
-    ORDEM_PERIODOS.forEach(p=>{
+    cols.forEach(p=>{
       const sel = p===per ? " sel" : "";
       const arw = p===per ? `<span class="arw"> ${seta}</span>` : "";
-      th += `<th class="col${sel}" data-p="${p}">${D.periodos[p]}${arw}</th>`;
+      th += `<th class="col${sel}" data-p="${p}" title="${rotuloPeriodoLongo(p)}">`
+          + `${rotuloPeriodo(p)}${arw}</th>`;
     });
     th += `</tr>`;
     thead.innerHTML = th;
@@ -364,16 +494,16 @@
       el.onclick = ()=>{ estado.periodo=el.dataset.p; estado.sortCampo="retorno"; syncSeg(); render(); };
     });
 
-    const maxAbs = Math.max(0.0001, ...linhas.map(a=>Math.abs(a.retornos[per]??0)));
+    const maxAbs = Math.max(0.0001, ...linhas.map(a=>Math.abs(retornoDe(a, per)??0)));
     if(linhas.length===0){
-      tbody.innerHTML = `<tr><td class="empty" colspan="${4+ORDEM_PERIODOS.length}">Nada encontrado.</td></tr>`;
+      tbody.innerHTML = `<tr><td class="empty" colspan="${4+cols.length}">Nada encontrado.</td></tr>`;
     } else {
       tbody.innerHTML = linhas.map((a,i)=>{
         let tds = `<td class="lft rank">${i+1}</td>${celAtivo(a)}`
-                + `<td class="lft">${sparkline(a.spark)}</td>`
+                + `<td class="lft">${sparkline(pontosSpark(a))}</td>`
                 + `<td class="price">${fmtPreco(a.preco)}</td>`;
-        ORDEM_PERIODOS.forEach(p=>{
-          const r = a.retornos[p];
+        cols.forEach(p=>{
+          const r = retornoDe(a, p);
           if(p===per){
             const w = r==null ? 0 : Math.min(100, Math.abs(r)/maxAbs*100);
             const barcor = r==null ? "transparent" : (r>=0? "var(--up)":"var(--down)");
@@ -389,7 +519,7 @@
 
     const rotDir = estado.dir==="desc" ? "maiores altas" : "maiores baixas";
     summaryEl.innerHTML =
-      `<b>${idx.nome}</b> · ordenado por <b>${D.periodos[per]}</b> (${rotDir}) · `
+      `<b>${idx.nome}</b> · ordenado por <b>${rotuloPeriodoLongo(per)}</b> (${rotDir}) · `
       + `${totalComDado} ativos com histórico · mostrando ${linhas.length}.`;
   }
 
@@ -406,7 +536,7 @@
       <th class="novo">Preço</th>
       <th id="thVol" class="${volSel?"sel":""}" title="Volume dos últimos 5 pregões vs. a média dos ~60 anteriores. 2× = negociando o dobro do normal.">Vol. relativo${volSel?`<span class="arw"> ${seta}</span>`:""}</th>
       <th class="novo" title="Volume financeiro médio dos últimos 5 pregões">Volume (R$/dia)</th>
-      <th id="thVar" class="${retSel?"sel":""}">Var. ${D.periodos[per]}${retSel?`<span class="arw"> ${seta}</span>`:""}</th>
+      <th id="thVar" class="${retSel?"sel":""}" title="${rotuloPeriodoLongo(per)}">Var. ${rotuloPeriodo(per)}${retSel?`<span class="arw"> ${seta}</span>`:""}</th>
     </tr>`;
     document.getElementById("thVol").onclick = ()=>{ estado.sortCampo="volume"; atualizarLabelsDir(); render(); };
     document.getElementById("thVar").onclick = ()=>{ estado.sortCampo="retorno"; atualizarLabelsDir(); render(); };
@@ -417,10 +547,10 @@
       tbody.innerHTML = linhas.map((a,i)=>{
         const v = a.rvol;
         const w = v==null ? 0 : Math.min(100, v/3*100);   // barra escala até 3×
-        const r = a.retornos[per];
+        const r = retornoDe(a, per);
         return `<tr>
           <td class="lft rank">${i+1}</td>${celAtivo(a)}
-          <td class="lft">${sparkline(a.spark)}</td>
+          <td class="lft">${sparkline(pontosSpark(a))}</td>
           <td class="price">${fmtPreco(a.preco)}</td>
           <td class="volcell${volSel?" sel":""}"><span class="vbar" style="width:${w}%"></span><span class="vval ${classeVol(v)}">${fmtRvol(v)}</span></td>
           <td class="${a.vol_rs==null?"na":"price"}">${fmtVolRs(a.vol_rs)}</td>
@@ -434,7 +564,7 @@
       ordLabel = "volume relativo";
       rotDir = estado.dir==="desc" ? "maior volume" : "menor volume";
     } else {
-      ordLabel = "variação em "+D.periodos[per];
+      ordLabel = "variação em "+rotuloPeriodoLongo(per);
       rotDir = estado.dir==="desc" ? "maiores altas" : "maiores baixas";
     }
     summaryEl.innerHTML =
@@ -444,6 +574,9 @@
 
   document.getElementById("footer").innerHTML =
     "Retornos calculados sobre o preço de fechamento ajustado (proventos e desdobramentos) do Yahoo Finance. "
+    + "\"1 dia\" compara o último pregão com o anterior (na segunda, portanto, com a sexta). "
+    + "Em \"Datas…\", cada ponta do intervalo usa o fechamento do pregão mais próximo para trás — "
+    + "se a data escolhida cair em fim de semana ou feriado, vale o último pregão antes dela. "
     + "Volume relativo = média dos últimos 5 pregões ÷ média dos ~60 pregões anteriores. "
     + "Ferramenta de acompanhamento — não é recomendação de investimento.";
 
