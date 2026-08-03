@@ -42,6 +42,9 @@
     padding:16px 18px; margin-bottom:18px;
   }
   .field{display:flex; flex-direction:column; gap:6px}
+  /* Sem isto o display:flex acima vence o [hidden] do navegador e o campo
+     de intervalo aparece mesmo escondido. */
+  .field[hidden]{display:none}
   .field label{font-size:11px; text-transform:uppercase; letter-spacing:.7px; color:var(--muted)}
   select, input[type=search], input[type=date]{
     font-family:inherit; background:var(--panel2); color:var(--txt);
@@ -62,6 +65,7 @@
   }
   .segmented button:last-child{border-right:0}
   .segmented button.on{background:var(--accent); color:#08211b; font-weight:600}
+  .segmented button.lig{color:var(--accent); font-weight:600}   /* ligado, mas não selecionado */
   .segmented button:hover:not(.on){color:var(--txt); background:var(--panel3)}
   /* Destaque do seletor de Análise (modo) */
   .segmented.modo button.on{background:var(--accent)}
@@ -188,13 +192,22 @@
   const D = window.DADOS_MOMENTUM;
   const ORDEM_PERIODOS = ["1d","7d","15d","30d","2m","3m","6m","1a"];
   const PONTOS_SPARK = 130;          // ~6 meses de pregões no mini-gráfico
-  const DATAS = D.datas || [];       // eixo de datas comum (ISO, crescente)
 
+  // Nada pode tocar em D antes desta guarda, senão a mensagem de arquivo
+  // ausente nunca aparece — o script morre antes com um TypeError.
   if(!D){
     document.getElementById("sub").textContent =
       "Não encontrei o arquivo de dados (dados.js). Rode  python3 atualizar.py  primeiro.";
     return;
   }
+
+  const DATAS = D.datas || [];       // eixo de datas comum (ISO, crescente)
+
+  // Cada ativo é um objeto só, guardado em D.ativos; os índices carregam apenas
+  // a lista de tickers. Assim uma ação que está em vários índices não repete a
+  // série de preços no arquivo — e na tela vira sempre o mesmo objeto.
+  const porTicker = D.ativos || {};
+  const listaDe = idx => (idx.tickers || []).map(t => porTicker[t]).filter(Boolean);
 
   // Universo combinado: "Todos" = união dos índices, sem repetir ticker.
   // Índices marcados com "fora_de_todos" (ex.: IFIX, só fundos imobiliários)
@@ -203,16 +216,16 @@
   const acoesTodos = [];
   for(const idx of Object.values(D.indices)){
     if(idx.fora_de_todos) continue;
-    for(const a of idx.acoes){
+    for(const a of listaDe(idx)){
       if(vistos.has(a.ticker)) continue;
       vistos.add(a.ticker);
       acoesTodos.push(a);
     }
   }
-  const INDICES = Object.assign(
-    { TODOS: { nome:"Todos os índices de ações", acoes: acoesTodos } },
-    D.indices
-  );
+  const INDICES = { TODOS: { nome:"Todos os índices de ações", acoes: acoesTodos } };
+  for(const [cod, idx] of Object.entries(D.indices)){
+    INDICES[cod] = { nome: idx.nome, acoes: listaDe(idx) };
+  }
 
   // Estado da tela
   const estado = {
@@ -251,13 +264,15 @@
   const inpDe = document.getElementById("dataDe");
   const inpAte = document.getElementById("dataAte");
 
+  let ultimoPeriodoFixo = estado.periodo;   // para onde voltar ao desligar "Datas…"
+
   ORDEM_PERIODOS.forEach(p=>{
     const b = document.createElement("button");
     b.dataset.p = p;
     b.textContent = D.periodos[p] || p;
     if(p===estado.periodo) b.classList.add("on");
     b.onclick = ()=>{
-      estado.periodo=p;
+      estado.periodo=p; ultimoPeriodoFixo=p;
       if(estado.modo==="momentum") estado.sortCampo="retorno";
       syncSeg(); render();
     };
@@ -270,10 +285,11 @@
     bc.textContent = "Datas…";
     bc.title = "Escolher um intervalo de datas qualquer";
     bc.onclick = ()=>{
-      // Funciona como interruptor: liga a coluna e a seleciona; desliga volta ao padrão.
+      // Interruptor: liga a coluna e a seleciona; clicando de novo com ela já
+      // selecionada, desliga e devolve o período que estava antes.
       if(estado.custom && estado.periodo==="custom"){
         estado.custom = false;
-        estado.periodo = "30d";
+        estado.periodo = ultimoPeriodoFixo;
       } else {
         estado.custom = true;
         estado.periodo = "custom";
@@ -290,18 +306,34 @@
     [inpDe, inpAte].forEach(el=>{ el.min = DATAS[0]; el.max = DATAS[DATAS.length-1]; });
     inpDe.value = estado.de;  inpAte.value = estado.ate;
 
-    const onData = ()=>{
+    // Lê o intervalo já corrigido, ou null se ainda não dá para usar.
+    function lerIntervalo(){
       const pri = DATAS[0], ult = DATAS[DATAS.length-1];
-      let de = inpDe.value || pri;
-      let ate = inpAte.value || ult;
-      // Se vierem invertidas, troca. Se caírem fora do histórico que temos,
-      // puxa para dentro. Nos dois casos o campo mostra a correção, para não
-      // deixar o usuário achando que a conta saiu errada.
+      let de = inpDe.value, ate = inpAte.value;
+      // Um input[type=date] fica com value "" enquanto um segmento (dia/mês/ano)
+      // está incompleto, e o navegador dispara "change" nesse meio-tempo. Tratar
+      // isso como "sem data" faria a tela pular para o histórico inteiro no meio
+      // da digitação — então simplesmente ignoramos o estado transitório.
+      if(!de || !ate) return null;
+      // Limita as duas pontas ao histórico ANTES de reordenar. Na ordem
+      // inversa, duas datas fora do histórico do mesmo lado voltavam invertidas
+      // e uma delas continuava fora da janela.
+      const limitar = x => x < pri ? pri : (x > ult ? ult : x);
+      de = limitar(de); ate = limitar(ate);
       if(de > ate) [de, ate] = [ate, de];
-      if(de < pri) de = pri;
-      if(ate > ult) ate = ult;
-      inpDe.value = de; inpAte.value = ate;
-      estado.de = de; estado.ate = ate;
+      return {de, ate};
+    }
+    // Mostra no campo a correção aplicada — mas nunca no campo que está com o
+    // foco, porque reescrever ali apaga o que o usuário está digitando.
+    function refletir(r){
+      if(document.activeElement !== inpDe) inpDe.value = r.de;
+      if(document.activeElement !== inpAte) inpAte.value = r.ate;
+    }
+    const onData = ()=>{
+      const r = lerIntervalo();
+      if(!r) return;
+      refletir(r);
+      estado.de = r.de; estado.ate = r.ate;
       if(!estado.custom){ estado.custom = true; fieldIntervalo.hidden = false; }
       estado.periodo = "custom";
       if(estado.modo==="momentum") estado.sortCampo="retorno";
@@ -309,15 +341,29 @@
     };
     inpDe.onchange = onData;
     inpAte.onchange = onData;
+    // Ao sair do campo, aí sim o valor corrigido aparece.
+    const aoSair = ()=>{ const r = lerIntervalo(); if(r){ inpDe.value=r.de; inpAte.value=r.ate; } };
+    inpDe.onblur = aoSair;
+    inpAte.onblur = aoSair;
   }
 
+  // Um mês para trás, sem passar por Date local (que desloca por fuso) e sem o
+  // overflow do setMonth — 31/03 vira 28/02, não 03/03.
   function recuarUmMes(iso){
-    const d = new Date(iso+"T00:00:00");
-    d.setMonth(d.getMonth()-1);
-    return d.toISOString().slice(0,10);
+    let [a, m, d] = iso.split("-").map(Number);
+    if(--m === 0){ m = 12; a -= 1; }
+    const ultimoDoMes = new Date(Date.UTC(a, m, 0)).getUTCDate();
+    if(d > ultimoDoMes) d = ultimoDoMes;
+    return `${a}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
   }
   function syncSeg(){
-    [...segPeriodo.children].forEach(b=>b.classList.toggle("on", b.dataset.p===estado.periodo));
+    [...segPeriodo.children].forEach(b=>{
+      b.classList.toggle("on", b.dataset.p===estado.periodo);
+      // A coluna de intervalo pode estar ligada sem estar selecionada; nesse
+      // caso o botão fica destacado, mas sem o preenchimento de "selecionado".
+      if(b.dataset.p==="custom")
+        b.classList.toggle("lig", estado.custom && estado.periodo!=="custom");
+    });
   }
 
   // Seletor de Análise (modo)
