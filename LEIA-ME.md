@@ -9,7 +9,7 @@ Os dados vêm do **Yahoo Finance** (fechamento ajustado por proventos).
 | 1 dia | fechamento de hoje contra o do pregão anterior |
 | **Semana** | do fechamento da **última sexta** até hoje — a semana em que estamos |
 | **Mês atual** | do fechamento do **último pregão do mês passado** até hoje — o mês em que estamos |
-| **1 mês** | do **mesmo dia do mês passado** até hoje |
+| **30 dias** | do **mesmo dia do mês passado** até hoje — a janela real vai de 28 a 31 dias, conforme o mês |
 | 2, 3, 6 meses e 1 ano | do mesmo dia daquele mês/ano até hoje |
 
 "Semana" e "Mês atual" são ancorados no calendário: no primeiro pregão do mês,
@@ -76,6 +76,10 @@ pip install -r requirements.txt
      vírgula** (`VAMO3, KLBN11, PETR4`), que vira uma mini-carteira na tela;
    - clicar em **Datas…** para comparar duas datas quaisquer do último ano;
    - limitar a Top 10 / 20 / 50 ou ver todas.
+
+   **No celular** a tabela vira uma lista de cartões: cada ativo mostra ticker,
+   preço, o mini-gráfico e todos os períodos em blocos com rótulo, sem precisar
+   rolar de lado. A faixa de períodos rola horizontalmente com o dedo.
 
 ---
 
