@@ -45,11 +45,16 @@ AQUI = os.path.dirname(os.path.abspath(__file__))
 PASTA_CARTEIRAS = os.path.join(AQUI, "carteiras")
 
 # Nome amigável e prefixo do arquivo da B3 para cada índice.
+# "fora_de_todos": True mantém o índice fora da opção "Todos" da interface —
+# usado para o IFIX, que é só de fundos imobiliários e não deve se misturar
+# com as ações no ranking combinado.
 INDICES = {
     "IBOV": {"nome": "Ibovespa",              "prefixo": "IBOVDia"},
     "IBXX": {"nome": "IBrX 100",              "prefixo": "IBXXDia"},
     "IDIV": {"nome": "Índice Dividendos",     "prefixo": "IDIVDia"},
     "SMLL": {"nome": "Small Caps",            "prefixo": "SMLLDia"},
+    "IFIX": {"nome": "Fundos Imobiliários",   "prefixo": "IFIXDia",
+             "fora_de_todos": True},
 }
 
 # Períodos de momentum. A função recebe a última data disponível e devolve
@@ -120,7 +125,8 @@ def carregar_indices() -> dict[str, dict]:
                   f"(esperado {info['prefixo']}*.csv em carteiras/) — pulando.")
             continue
         acoes = ler_carteira(caminho)
-        resultado[cod] = {"nome": info["nome"], "acoes": acoes}
+        resultado[cod] = {"nome": info["nome"], "acoes": acoes,
+                          "fora_de_todos": info.get("fora_de_todos", False)}
         print(f"  • {cod:5s} {info['nome']:20s} {len(acoes):3d} ações "
               f"({os.path.basename(caminho)})")
     return resultado
@@ -301,7 +307,8 @@ def main() -> None:
                 "rvol": d.get("rvol"),
                 "vol_rs": d.get("vol_rs"),
             })
-        saida["indices"][cod] = {"nome": idx["nome"], "acoes": lista}
+        saida["indices"][cod] = {"nome": idx["nome"], "acoes": lista,
+                                 "fora_de_todos": idx.get("fora_de_todos", False)}
 
     # Grava em dois formatos:
     #   dados.js   -> para abrir o index.html com 2 cliques (sem servidor)
