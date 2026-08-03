@@ -77,6 +77,10 @@ pip install -r requirements.txt
    - clicar em **Datas…** para comparar duas datas quaisquer do último ano;
    - limitar a Top 10 / 20 / 50 ou ver todas.
 
+   **No celular** a tabela vira uma lista de cartões: cada ativo mostra ticker,
+   preço, o mini-gráfico e todos os períodos em blocos com rótulo, sem precisar
+   rolar de lado. A faixa de períodos rola horizontalmente com o dedo.
+
 ---
 
 ## Atualizar a composição dos índices
