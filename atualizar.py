@@ -69,7 +69,8 @@ INDICES = {
 #   "mes" — do último pregão do mês passado até hoje (o mês em que estamos).
 #           Alvo = último dia do mês anterior.
 #   "1m"  — mesmo dia do mês passado até hoje. É o irmão de "2 meses" e
-#           "3 meses"; substituiu os antigos "30 dias corridos".
+#           "3 meses". Aparece na tela como "30 dias", que é mais legível ao
+#           lado de "Mês atual" — mas a conta é de mês, não de 30 dias corridos.
 def _inicio_semana(d):
     """Domingo que antecede a semana corrente — cai no fechamento de sexta."""
     return d - timedelta(days=d.weekday() + 1)
@@ -87,7 +88,10 @@ PERIODOS = {
             _inicio_semana),
     "mes": ("Mês atual", "Do fechamento do último pregão do mês passado até hoje — o mês corrente",
             _fim_mes_passado),
-    "1m":  ("1 mês",     "Do mesmo dia do mês passado até hoje",
+    # Rótulo "30 dias" por ser mais legível ao lado de "Mês atual", mas a conta
+    # é de mês de calendário: a chave "1m" e a descrição dizem o que ele mede
+    # de fato. A janela real varia de 28 a 31 dias conforme o mês.
+    "1m":  ("30 dias",   "Do mesmo dia do mês passado até hoje — de 28 a 31 dias, conforme o mês",
             lambda d: d - relativedelta(months=1)),
     "2m":  ("2 meses",   "Do mesmo dia de dois meses atrás até hoje",
             lambda d: d - relativedelta(months=2)),

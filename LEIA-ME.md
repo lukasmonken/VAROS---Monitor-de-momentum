@@ -9,7 +9,7 @@ Os dados vêm do **Yahoo Finance** (fechamento ajustado por proventos).
 | 1 dia | fechamento de hoje contra o do pregão anterior |
 | **Semana** | do fechamento da **última sexta** até hoje — a semana em que estamos |
 | **Mês atual** | do fechamento do **último pregão do mês passado** até hoje — o mês em que estamos |
-| **1 mês** | do **mesmo dia do mês passado** até hoje |
+| **30 dias** | do **mesmo dia do mês passado** até hoje — a janela real vai de 28 a 31 dias, conforme o mês |
 | 2, 3, 6 meses e 1 ano | do mesmo dia daquele mês/ano até hoje |
 
 "Semana" e "Mês atual" são ancorados no calendário: no primeiro pregão do mês,
