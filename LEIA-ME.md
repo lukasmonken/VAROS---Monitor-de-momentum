@@ -172,6 +172,21 @@ registro.
   do histórico são puxadas para o limite, e datas invertidas são trocadas — nos
   dois casos o próprio campo mostra a correção.
 - Ações com IPO recente aparecem com "—" nos períodos que ainda não existiam.
+- **Quando não dá para calcular, a ferramenta não inventa número.** Duas
+  situações produzem célula sem valor, e as duas dizem o motivo (passe o mouse,
+  e olhe o aviso acima da tabela):
+  - **`—` sem histórico**: o ativo não tinha cotação em toda a janela pedida. O
+    aviso informa a partir de que pregão ele existe.
+  - **`⚠` quebra de série**: a cotação deu um salto grande demais para ser
+    mercado (acima de 60% em um pregão) — grupamento ou desdobramento que o
+    Yahoo não ajustou para trás, ou dado corrompido. Comparar preços dos dois
+    lados dessa data não mede retorno nenhum, porque não são a mesma unidade.
+    Todo período que atravessa a quebra fica sem valor, e o mini-gráfico só
+    desenha o trecho posterior a ela.
+
+    > Caso real: em 14/01/2026 o XPML11 saiu de R$ 14,19 para R$ 0,1376, ficou
+    > três pregões assim e reapareceu em R$ 104,12. Sem esse tratamento, a
+    > coluna de 1 ano exibia **+731%**, comparando cotações incomparáveis.
 - **Formato do `dados.js`**: cada ativo aparece uma única vez em `ativos`, e os
   índices guardam só a lista de tickers. Uma ação que está em quatro índices não
   repete a série de preços quatro vezes no arquivo.

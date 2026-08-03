@@ -84,6 +84,17 @@ PERIODOS = {
 VOL_JANELA_RECENTE = 5    # pregões "recentes"
 VOL_JANELA_BASE = 60      # pregões de referência (o "normal" da ação)
 
+# Quebra de série: variação de um pregão para o outro grande demais para ser
+# mercado. Denuncia grupamento/desdobramento que o Yahoo não ajustou para trás,
+# ou cotação corrompida. Exemplos reais encontrados na base:
+#   NATU3  36,86 -> 10,19  e ficou nesse patamar (evento societário)
+#   XPML11 14,19 -> 0,1376 -> 104,12 (três pregões de lixo + grupamento)
+# Comparar preços dos dois lados de uma quebra não mede retorno nenhum: são
+# unidades diferentes. Qualquer período que atravesse uma quebra é anulado.
+# O limite é alto de propósito — a -55% de um pregão da RCSL4, que reverteu nos
+# dias seguintes, é volatilidade de penny stock e continua valendo.
+LIMITE_QUEBRA = 0.60
+
 
 # --------------------------------------------------------------------------- #
 # 1) Ler as carteiras da B3
@@ -183,34 +194,65 @@ def baixar_precos(tickers_yahoo: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]
 # 3) Calcular os retornos de momentum
 # --------------------------------------------------------------------------- #
 
-def calcular_retornos(serie: pd.Series) -> tuple[dict, float | None]:
+def detectar_quebras(serie: pd.Series) -> list[pd.Timestamp]:
+    """
+    Datas em que a série dá um salto grande demais para ser mercado — ver
+    LIMITE_QUEBRA. A data devolvida é a do pregão DEPOIS do salto.
+    """
+    s = serie.dropna()
+    if len(s) < 2:
+        return []
+    variacao = s / s.shift(1) - 1
+    return [d for d, v in variacao.items()
+            if pd.notna(v) and abs(v) > LIMITE_QUEBRA]
+
+
+def calcular_retornos(serie: pd.Series,
+                      quebras: list) -> tuple[dict, dict, float | None]:
     """
     Para uma série de preços de UMA ação, devolve:
       - retornos: {periodo: variação_decimal ou None}
+      - motivos:  {periodo: "sem-historico" | "quebra"} só para os que deram None
       - preco_atual: último fechamento
     """
     serie = serie.dropna()
     if serie.empty:
-        return {p: None for p in PERIODOS}, None
+        return ({p: None for p in PERIODOS},
+                {p: "sem-historico" for p in PERIODOS}, None)
 
     data_atual = serie.index[-1]
     preco_atual = float(serie.iloc[-1])
 
     retornos: dict[str, float | None] = {}
+    motivos: dict[str, str] = {}
     for chave, (_rotulo, calc_data) in PERIODOS.items():
         alvo = pd.Timestamp(calc_data(data_atual))
-        # Se a ação nem existia nessa data (IPO recente), não há retorno.
-        if alvo < serie.index[0]:
+        # Último pregão <= data-alvo (resolve feriado/fim de semana). Precisamos
+        # da posição, e não só do preço, para saber a data-base do período.
+        pos = serie.index.searchsorted(alvo, side="right") - 1
+        if pos < 0:
+            # A ação nem existia nessa data (IPO/listagem recente).
             retornos[chave] = None
+            motivos[chave] = "sem-historico"
             continue
-        # asof pega o último pregão <= data-alvo (resolve feriado/fim de semana).
-        preco_passado = serie.asof(alvo)
-        if pd.isna(preco_passado) or preco_passado == 0:
-            retornos[chave] = None
-        else:
-            retornos[chave] = round(preco_atual / float(preco_passado) - 1, 6)
 
-    return retornos, round(preco_atual, 2)
+        data_base = serie.index[pos]
+        preco_passado = float(serie.iloc[pos])
+
+        # Uma quebra entre a data-base e hoje torna a comparação sem sentido.
+        if any(data_base < q <= data_atual for q in quebras):
+            retornos[chave] = None
+            motivos[chave] = "quebra"
+            continue
+
+        if preco_passado == 0:
+            retornos[chave] = None
+            motivos[chave] = "sem-historico"
+            continue
+
+        retornos[chave] = round(preco_atual / preco_passado - 1, 6)
+
+    return retornos, motivos, round(preco_atual, 2)
 
 
 def calcular_volume(vol: pd.Series, preco: pd.Series) -> tuple[float | None, float | None]:
@@ -272,14 +314,21 @@ def main() -> None:
     # Calcula os retornos de cada ticker uma única vez.
     por_ticker: dict[str, dict] = {}
     sem_dados: list[str] = []
+    com_quebra: list[str] = []
     for t in tickers_b3:
         col = f"{t}.SA"
         if col not in close.columns:
             sem_dados.append(t)
             por_ticker[t] = {"retornos": {p: None for p in PERIODOS},
-                             "preco": None, "serie": [], "rvol": None, "vol_rs": None}
+                             "motivos": {p: "sem-historico" for p in PERIODOS},
+                             "preco": None, "serie": [], "quebras": [],
+                             "primeiro_pregao": None,
+                             "rvol": None, "vol_rs": None}
             continue
-        retornos, preco = calcular_retornos(close[col])
+        quebras = detectar_quebras(close[col])
+        if quebras:
+            com_quebra.append(f"{t} ({', '.join(q.strftime('%d/%m/%Y') for q in quebras)})")
+        retornos, motivos, preco = calcular_retornos(close[col], quebras)
         rvol, vol_rs = (None, None)
         if col in volume.columns:
             rvol, vol_rs = calcular_volume(volume[col], close[col])
@@ -294,8 +343,14 @@ def main() -> None:
         # de período fixo nas MESMAS duas datas — que o Python calcula com
         # precisão cheia.
         serie = [None if pd.isna(v) else round(float(v), 4) for v in close[col]]
-        por_ticker[t] = {"retornos": retornos, "preco": preco, "serie": serie,
-                         "rvol": rvol, "vol_rs": vol_rs}
+        s_limpa = close[col].dropna()
+        por_ticker[t] = {
+            "retornos": retornos, "motivos": motivos, "preco": preco,
+            "serie": serie,
+            "quebras": [q.strftime("%Y-%m-%d") for q in quebras],
+            "primeiro_pregao": s_limpa.index[0].strftime("%Y-%m-%d") if len(s_limpa) else None,
+            "rvol": rvol, "vol_rs": vol_rs,
+        }
 
     # Monta a estrutura final por índice.
     data_ref = None
@@ -319,7 +374,11 @@ def main() -> None:
             "nome": nomes.get(ticker, ticker),
             "preco": d.get("preco"),
             "retornos": d.get("retornos", {p: None for p in PERIODOS}),
+            # Por que um período ficou sem retorno. Só entra o que deu None.
+            "motivos": {k: v for k, v in (d.get("motivos") or {}).items() if v},
             "serie": d.get("serie", []),
+            "quebras": d.get("quebras", []),
+            "primeiro_pregao": d.get("primeiro_pregao"),
             "rvol": d.get("rvol"),
             "vol_rs": d.get("vol_rs"),
         }
@@ -358,6 +417,11 @@ def main() -> None:
     if sem_dados:
         print(f"  Aviso: sem cotação para {len(sem_dados)} ticker(s): "
               f"{', '.join(sem_dados)}")
+    if com_quebra:
+        print(f"  Quebra de série em {len(com_quebra)} ativo(s) — os períodos "
+              f"que atravessam a data ficam sem retorno:")
+        for x in com_quebra:
+            print(f"    · {x}")
     print(f"\n  Agora abra o arquivo index.html no navegador.")
     print("=" * 62)
 
