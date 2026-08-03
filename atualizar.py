@@ -287,7 +287,13 @@ def main() -> None:
             sem_dados.append(t)
         # Série alinhada ao eixo comum: None onde a ação não tem fechamento
         # (ainda não existia, ou não negociou naquele pregão).
-        serie = [None if pd.isna(v) else round(float(v), 2) for v in close[col]]
+        #
+        # 4 casas, não 2: esta série é a base do intervalo de datas calculado na
+        # interface. Com 2 casas, um papel de centavos (R$ 0,26) carregava ~1%
+        # de erro no denominador, e a coluna de intervalo discordava da coluna
+        # de período fixo nas MESMAS duas datas — que o Python calcula com
+        # precisão cheia.
+        serie = [None if pd.isna(v) else round(float(v), 4) for v in close[col]]
         por_ticker[t] = {"retornos": retornos, "preco": preco, "serie": serie,
                          "rvol": rvol, "vol_rs": vol_rs}
 
@@ -296,29 +302,42 @@ def main() -> None:
     if not close.empty:
         data_ref = close.index[-1].strftime("%d/%m/%Y")
 
+    # Cada ativo aparece UMA vez em "ativos"; os índices guardam só a lista de
+    # tickers. Antes, uma ação presente em quatro índices tinha a série de
+    # preços repetida quatro vezes no arquivo — quase metade do dados.js era
+    # duplicata, comitada todo pregão pela Action.
+    nomes: dict[str, str] = {}
+    for idx in indices.values():
+        for ticker, nome in idx["acoes"].items():
+            nomes.setdefault(ticker, nome)
+
+    ativos = {}
+    for ticker in tickers_b3:
+        d = por_ticker.get(ticker, {})
+        ativos[ticker] = {
+            "ticker": ticker,
+            "nome": nomes.get(ticker, ticker),
+            "preco": d.get("preco"),
+            "retornos": d.get("retornos", {p: None for p in PERIODOS}),
+            "serie": d.get("serie", []),
+            "rvol": d.get("rvol"),
+            "vol_rs": d.get("vol_rs"),
+        }
+
     saida = {
         "atualizado_em": datetime.now().strftime("%d/%m/%Y %H:%M"),
         "data_pregao": data_ref,
         "periodos": {k: v[0] for k, v in PERIODOS.items()},
         # Eixo de datas comum a todas as séries (só dias de pregão).
         "datas": [d.strftime("%Y-%m-%d") for d in close.index],
-        "indices": {},
+        "ativos": ativos,
+        "indices": {
+            cod: {"nome": idx["nome"],
+                  "tickers": list(idx["acoes"].keys()),
+                  "fora_de_todos": idx.get("fora_de_todos", False)}
+            for cod, idx in indices.items()
+        },
     }
-    for cod, idx in indices.items():
-        lista = []
-        for ticker, nome in idx["acoes"].items():
-            d = por_ticker.get(ticker, {})
-            lista.append({
-                "ticker": ticker,
-                "nome": nome,
-                "preco": d.get("preco"),
-                "retornos": d.get("retornos", {p: None for p in PERIODOS}),
-                "serie": d.get("serie", []),
-                "rvol": d.get("rvol"),
-                "vol_rs": d.get("vol_rs"),
-            })
-        saida["indices"][cod] = {"nome": idx["nome"], "acoes": lista,
-                                 "fora_de_todos": idx.get("fora_de_todos", False)}
 
     # Grava em dois formatos:
     #   dados.js   -> para abrir o index.html com 2 cliques (sem servidor)

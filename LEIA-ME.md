@@ -116,7 +116,7 @@ suficiente** — por isso não vale a pena montar um servidor rodando o tempo to
 |--------------------|----------------------------------------------------------------|
 | `atualizar.py`     | Script que busca os dados e calcula o momentum (você roda).     |
 | `index.html`       | A interface. Abra no navegador.                                 |
-| `dados.js`         | Dados gerados pelo `atualizar.py` (lido pelo `index.html`). Carrega a série de fechamentos de cada ativo, que é o que permite o intervalo de datas. ~900 KB, ~270 KB comprimido no ar. |
+| `dados.js`         | Dados gerados pelo `atualizar.py` (lido pelo `index.html`). Carrega a série de fechamentos de cada ativo, que é o que permite o intervalo de datas. ~630 KB, ~220 KB comprimido no ar. |
 | `dados.json`       | Mesmos dados em JSON, para quem for hospedar num servidor.       |
 | `carteiras/`       | CSVs de composição dos índices baixados da B3.                  |
 | `assets/`          | Fonte Instrument Sans embutida (identidade visual VAROS). **Mantenha junto.** |
@@ -151,6 +151,9 @@ suficiente** — por isso não vale a pena montar um servidor rodando o tempo to
   do histórico são puxadas para o limite, e datas invertidas são trocadas — nos
   dois casos o próprio campo mostra a correção.
 - Ações com IPO recente aparecem com "—" nos períodos que ainda não existiam.
+- **Formato do `dados.js`**: cada ativo aparece uma única vez em `ativos`, e os
+  índices guardam só a lista de tickers. Uma ação que está em quatro índices não
+  repete a série de preços quatro vezes no arquivo.
 - Buscar **vários tickers separados por vírgula** mostra todos os que casarem,
   ignorando o limite de Top N — a ideia é ver a lista inteira que você pediu.
 - É uma ferramenta de **acompanhamento**, não recomendação de investimento.
