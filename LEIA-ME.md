@@ -178,6 +178,43 @@ não devolve — esses aparecem como aviso no fim da execução, sem derrubar na
 Os três números vivem no topo do `atualizar.py` (`TENTATIVAS_DOWNLOAD`,
 `ESPERA_ENTRE_TENTATIVAS`, `LIMITE_SEM_COTACAO`).
 
+### O que a Action confere
+
+Antes de publicar, ela roda o **`testes.py`** — se a lógica de datas ou a
+detecção de quebra estiver quebrada, não faz sentido gastar um minuto no Yahoo
+nem colocar número errado no ar.
+
+Depois de publicar, ela confere **o site que ficou no ar**, e não só o que saiu
+daqui, pedindo dois arquivos:
+
+| Arquivo | Esperado | O que um resultado diferente significa |
+|---|---|---|
+| `/dados.js` | 200 | 404 = o site está no ar sem dados |
+| `/atualizar.py` | 404 | 200 = o Pages voltou a publicar a **branch** em vez do pacote da Action |
+
+A segunda linha é a mais útil, e nasceu de um problema real: em 05/08/2026 todos
+os passos terminaram em verde e o site subiu mostrando "não encontrei o arquivo
+de dados", porque o Pages estava publicando o conteúdo do repositório — onde o
+`dados.js` não existe de propósito. Como o `atualizar.py` nunca entra no pacote
+publicado, vê-lo respondendo no site denuncia a origem errada na hora. O
+conserto está na caixa acima: **Settings → Pages → Source = GitHub Actions**.
+
+## Rodar os testes
+
+```bash
+python3 testes.py
+```
+
+Levam cerca de um segundo e não vão à rede — o Yahoo é substituído por uma
+função falsa. Cobrem as âncoras de calendário ("Semana", "Mês atual"), a regra
+do "último pregão até a data-alvo" (feriado, fim de semana, IPO recente), a
+detecção de quebra de série (o caso XPML11 é pego; a queda de 55% da RCSL4 não
+é), a escolha da carteira da B3 e o comportamento diante de resposta parcial do
+Yahoo.
+
+São as partes que já foram corrigidas mais de uma vez e que quebram **em
+silêncio**: o site continua abrindo, só com número errado.
+
 ---
 
 ## Arquivos
@@ -190,6 +227,7 @@ Os três números vivem no topo do `atualizar.py` (`TENTATIVAS_DOWNLOAD`,
 | `dados.json`       | Mesmos dados em JSON, para quem for hospedar num servidor. Também fora do git. |
 | `carteiras/`       | CSVs de composição dos índices baixados da B3.                  |
 | `assets/`          | Fonte Instrument Sans embutida (identidade visual VAROS). **Mantenha junto.** |
+| `testes.py`        | Testes do `atualizar.py` (`python3 testes.py`, ~1s, sem internet). A Action roda antes de publicar. |
 | `requirements.txt` | Bibliotecas Python necessárias.                                 |
 
 > **Identidade visual:** segue o guia da VAROS — fundo `#131313`/preto, paleta

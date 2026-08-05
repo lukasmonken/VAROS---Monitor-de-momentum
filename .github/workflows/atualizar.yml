@@ -40,6 +40,12 @@ jobs:
       - name: Instalar dependências
         run: pip install -r requirements.txt
 
+      # Antes de gastar um minuto no Yahoo: se a lógica de datas ou a detecção
+      # de quebra estiver quebrada, não faz sentido publicar nada. Leva ~1s e
+      # não vai à rede.
+      - name: Rodar os testes
+        run: python testes.py
+
       - name: Rodar o atualizador (consulta o Yahoo e gera dados.js)
         run: python atualizar.py
 
@@ -72,3 +78,42 @@ jobs:
       - name: Publicar
         id: publicar
         uses: actions/deploy-pages@v4
+
+      # Confere o que ficou NO AR, não o que saiu daqui. Em 05/08/2026 todos os
+      # passos acima terminaram em verde e mesmo assim o site subiu sem dados:
+      # o Pages estava publicando o conteúdo da branch em vez deste pacote, e
+      # como o dados.js não é versionado, o site virou a tela de "não encontrei
+      # o arquivo de dados". Ninguém foi avisado — o problema foi achado no olho.
+      #
+      # Os dois testes abaixo separam os dois mundos:
+      #   dados.js      -> só existe neste pacote; 404 significa site sem dados;
+      #   atualizar.py  -> só existe no repositório e NUNCA entra no _site, então
+      #                    200 denuncia que a origem do Pages está errada.
+      # Conserto, quando falhar: Settings > Pages > Source = GitHub Actions.
+      - name: Conferir o site publicado
+        run: |
+          URL="${{ steps.publicar.outputs.page_url }}"
+          URL="${URL%/}"
+          echo "Conferindo $URL"
+          # O CDN leva alguns segundos para servir a versão nova.
+          for tentativa in 1 2 3 4 5 6; do
+            # O "|| true" existe porque o passo roda com bash -e: sem ele, uma
+            # falha de rede mataria o passo com uma mensagem obscura em vez de
+            # tentar de novo. Nesse caso o próprio curl devolve o código 000.
+            dados=$(curl -s -o /dev/null -w '%{http_code}' "$URL/dados.js" || true)
+            fonte=$(curl -s -o /dev/null -w '%{http_code}' "$URL/atualizar.py" || true)
+            echo "  tentativa $tentativa: dados.js=$dados atualizar.py=$fonte"
+            if [ "$dados" = "200" ] && [ "$fonte" = "404" ]; then
+              echo "OK: no ar está o pacote que esta Action montou."
+              exit 0
+            fi
+            sleep 10
+          done
+          if [ "$fonte" = "200" ]; then
+            echo "::error::O Pages está publicando o conteúdo da branch, não o pacote desta Action. Como o dados.js não é versionado, o site está no ar sem dados. Conserto: Settings > Pages > Source = GitHub Actions, e rode este fluxo de novo."
+          elif [ "$dados" = "000" ]; then
+            echo "::error::Não consegui alcançar $URL para conferir. Pode ser demora do CDN — rode este fluxo de novo e, se repetir, verifique o Pages."
+          else
+            echo "::error::O site publicado respondeu $dados em /dados.js. O deploy terminou, mas o arquivo de dados não está no ar."
+          fi
+          exit 1
