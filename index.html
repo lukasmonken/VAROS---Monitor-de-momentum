@@ -331,17 +331,23 @@
   // ficam de fora daqui — só aparecem quando selecionados diretamente.
   const vistos = new Set();
   const acoesTodos = [];
+  const carteirasTodos = new Set();
   for(const idx of Object.values(D.indices)){
     if(idx.fora_de_todos) continue;
+    if(idx.data_carteira) carteirasTodos.add(idx.data_carteira);
     for(const a of listaDe(idx)){
       if(vistos.has(a.ticker)) continue;
       vistos.add(a.ticker);
       acoesTodos.push(a);
     }
   }
-  const INDICES = { TODOS: { nome:"Todos os índices de ações", acoes: acoesTodos } };
+  // "carteiras" = as datas de referência dos CSVs da B3 por trás da lista de
+  // ativos. Em "Todos" são várias, uma por índice; num índice só, uma.
+  const INDICES = { TODOS: { nome:"Todos os índices de ações", acoes: acoesTodos,
+                             carteiras: [...carteirasTodos] } };
   for(const [cod, idx] of Object.entries(D.indices)){
-    INDICES[cod] = { nome: idx.nome, acoes: listaDe(idx) };
+    INDICES[cod] = { nome: idx.nome, acoes: listaDe(idx),
+                     carteiras: idx.data_carteira ? [idx.data_carteira] : [] };
   }
 
   // Estado da tela
@@ -578,6 +584,17 @@
     return r;
   }
   const brDate = iso => iso ? iso.slice(8,10)+"/"+iso.slice(5,7)+"/"+iso.slice(0,4) : "—";
+
+  // Data de referência da carteira da B3 por trás da lista mostrada. Vai no fim
+  // do resumo porque é o que denuncia uma composição que ficou para trás de um
+  // rebalanceamento — a B3 mexe nos índices a cada ~4 meses.
+  function rotuloCarteira(idx){
+    const ord = [...new Set((idx.carteiras || []).filter(Boolean))]
+      .sort((a,b)=>a.slice(6)+a.slice(3,5)+a.slice(0,2) < b.slice(6)+b.slice(3,5)+b.slice(0,2) ? -1 : 1);
+    if(!ord.length) return "";
+    if(ord.length===1) return ` · carteira da B3 de <b>${ord[0]}</b>`;
+    return ` · carteiras da B3 de <b>${ord[0]}</b> a <b>${ord[ord.length-1]}</b>`;
+  }
   // Rótulo curto da coluna (o cabeçalho é apertado) — a data cheia vai no title.
   function rotuloPeriodo(p){
     if(p!=="custom") return D.periodos[p] || p;
@@ -789,7 +806,8 @@
     const rotDir = estado.dir==="desc" ? "maiores altas" : "maiores baixas";
     summaryEl.innerHTML =
       `<b>${idx.nome}</b> · ordenado por <b>${rotuloPeriodoLongo(per)}</b> (${rotDir}) · `
-      + `${totalComDado} ativos com histórico · mostrando ${linhas.length}.`
+      + `${totalComDado} ativos com histórico · mostrando ${linhas.length}`
+      + rotuloCarteira(idx) + "."
       + aviso;
   }
 
@@ -839,7 +857,8 @@
     }
     summaryEl.innerHTML =
       `<b>${idx.nome}</b> · análise de volume · ordenado por <b>${ordLabel}</b> (${rotDir}) · `
-      + `${totalComDado} ativos com dado · mostrando ${linhas.length}.`
+      + `${totalComDado} ativos com dado · mostrando ${linhas.length}`
+      + rotuloCarteira(idx) + "."
       + aviso;
   }
 

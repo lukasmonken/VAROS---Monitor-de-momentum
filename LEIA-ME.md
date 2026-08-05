@@ -92,8 +92,19 @@ substitua o antigo:
    **Download** do arquivo CSV.
 2. Coloque o arquivo dentro da pasta **`carteiras/`** (pode manter o nome
    original, ex.: `IBOVDia_21-07-26.csv`). O script sempre usa o **mais recente**
-   de cada índice automaticamente.
+   de cada índice automaticamente — e "mais recente" é pela data que a B3
+   carimba na 1ª linha do CSV (`IBOV - Carteira do Dia 21/07/26`), não pela data
+   de modificação do arquivo. Pode renomear à vontade; não mexa nessa 1ª linha.
 3. Rode `python3 atualizar.py` de novo.
+
+> A data da carteira em uso aparece no fim da linha de resumo do site
+> ("carteira da B3 de 21/07/2026"). É o jeito de perceber que um índice ficou
+> para trás de um rebalanceamento.
+>
+> Por que não pela data de modificação: quem publica o site é a GitHub Action, e
+> o `checkout` grava todos os arquivos no mesmo instante. Com duas carteiras do
+> mesmo índice na pasta, o critério de modificação virava sorteio — e o site
+> podia sair com a composição antiga sem avisar ninguém.
 
 Para adicionar um índice novo, basta o CSV correspondente estar em `carteiras/`
 e registrar o prefixo dele no dicionário `INDICES` dentro de `atualizar.py`. Se
