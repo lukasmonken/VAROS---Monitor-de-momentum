@@ -146,13 +146,15 @@
        inteira abaixo dos controles. */
     .controls{padding:12px; gap:11px 10px; border-radius:12px; margin-bottom:14px}
     .field{width:100%}
-    /* "Análise" e "Mostrar" dividem a primeira linha. Como flexbox agrupa na
-       ordem do documento, é o order que os põe lado a lado sem bagunçar o
-       desktop. Depois vêm Índice e Período, o intervalo colado no Período, e
-       por fim ordenação e busca. */
+    /* Primeira linha inteira para "Análise" (dois botões grandes, bons de
+       dedo); a segunda divide "Mostrar" e "Liquidez mínima". Como flexbox
+       agrupa na ordem do documento, é o order que monta essas linhas sem
+       bagunçar o desktop. Depois vêm Índice e Período, o intervalo colado no
+       Período, e por fim ordenação e busca. */
+    .field.cheia{width:100%; order:1}
     .field.metade{width:calc(50% - 5px); order:1}
-    .field.metade .segmented{width:100%}
-    .field.metade .segmented button{flex:1}
+    .field.cheia .segmented, .field.metade .segmented{width:100%}
+    .field.cheia .segmented button, .field.metade .segmented button{flex:1}
     .field{order:2}
     #fieldIntervalo{order:3}
     .field.fim{order:4}
@@ -233,7 +235,7 @@
   </header>
 
   <div class="controls">
-    <div class="field metade">
+    <div class="field cheia">
       <label>Análise</label>
       <div class="segmented modo" id="segModo">
         <button data-modo="momentum" class="on">Momentum</button>
@@ -268,6 +270,15 @@
         <option value="20" selected>Top 20</option>
         <option value="50">Top 50</option>
         <option value="9999">Todas</option>
+      </select>
+    </div>
+    <div class="field metade">
+      <label>Liquidez mínima</label>
+      <select id="selLiquidez" title="Tira do ranking o que negocia pouco. Usa o volume financeiro médio dos últimos 5 pregões.">
+        <option value="0" selected>Todas</option>
+        <option value="1000000">R$ 1 mi/dia</option>
+        <option value="5000000">R$ 5 mi/dia</option>
+        <option value="20000000">R$ 20 mi/dia</option>
       </select>
     </div>
     <div class="field fim" style="flex:1; min-width:180px">
@@ -358,6 +369,7 @@
     dir: "desc",           // desc = maiores altas / maior volume
     sortCampo: "retorno",  // "retorno" (usa periodo) ou "volume"
     topN: 20,
+    liquidez: 0,           // volume financeiro mínimo em R$/dia (0 = sem filtro)
     busca: "",
     custom: false,         // coluna de intervalo de datas ligada?
     de: null, ate: null,   // datas do intervalo (ISO)
@@ -528,6 +540,9 @@
 
   selIndice.onchange = e=>{ estado.indice=e.target.value; render(); };
   document.getElementById("selTopN").onchange = e=>{ estado.topN=+e.target.value; render(); };
+  const selLiquidez = document.getElementById("selLiquidez");
+  selLiquidez.onchange = e=>{ estado.liquidez=+e.target.value; render(); };
+  const rotuloLiquidez = () => selLiquidez.selectedOptions[0].textContent;
   document.getElementById("busca").oninput = e=>{ estado.busca=e.target.value.trim().toLowerCase(); render(); };
 
   // --- Utilidades ---
@@ -713,7 +728,27 @@
     // Filtro de busca: vários termos separados por vírgula ("VAMO3, KLBN11"),
     // basta casar com um deles.
     const termos = estado.busca.split(",").map(s=>s.trim()).filter(Boolean);
-    let linhas = idx.acoes.filter(a=>{
+
+    // Filtro de liquidez. Sem ele, o ranking de altas do SMLL é dominado por
+    // papel que negocia R$ 200 mil/dia — número real, uso nenhum. Corta pelo
+    // volume financeiro médio dos últimos 5 pregões (o mesmo da aba Volume).
+    //
+    // Duas escolhas que valem a explicação:
+    //  · quem não tem volume conhecido (vol_rs nulo) também sai: sem o dado não
+    //    dá para afirmar que passa no corte, e deixar entrar seria fingir que
+    //    passou;
+    //  · a busca ignora o filtro. Quem digita um ticker está pedindo aquele
+    //    ativo, e sumir com ele porque é ilíquido só produz "Nada encontrado"
+    //    sem explicação.
+    let universo = idx.acoes;
+    let ocultados = 0;
+    const filtrandoLiquidez = estado.liquidez > 0 && !termos.length;
+    if(filtrandoLiquidez){
+      universo = idx.acoes.filter(a => (a.vol_rs ?? -1) >= estado.liquidez);
+      ocultados = idx.acoes.length - universo.length;
+    }
+
+    let linhas = universo.filter(a=>{
       if(!termos.length) return true;
       const tk = a.ticker.toLowerCase(), nm = (a.nome||"").toLowerCase();
       return termos.some(t => tk.includes(t) || nm.includes(t));
@@ -741,8 +776,20 @@
     const limite = termos.length>1 ? linhas.length : estado.topN;
     linhas = linhas.slice(0, limite);
 
-    if(estado.modo==="volume") renderVolume(idx, per, linhas, totalComDado, aviso);
-    else renderMomentum(idx, per, linhas, totalComDado, aviso);
+    // O que o filtro de liquidez tirou entra no resumo. Sem isso o corte fica
+    // invisível: a lista simplesmente encolhe e parece que o índice tem menos
+    // ativos do que tem.
+    const ctx = {
+      notaLiq: ocultados
+        ? ` · <b>${ocultados}</b> fora por liquidez abaixo de ${rotuloLiquidez()}`
+        : "",
+      vazio: filtrandoLiquidez
+        ? `Nada encontrado — nenhum ativo negocia acima de ${rotuloLiquidez()}.`
+        : "Nada encontrado.",
+    };
+
+    if(estado.modo==="volume") renderVolume(idx, per, linhas, totalComDado, aviso, ctx);
+    else renderMomentum(idx, per, linhas, totalComDado, aviso, ctx);
   }
 
   // Célula de retorno. Sem valor, mostra o porquê no lugar de um traço mudo.
@@ -756,7 +803,7 @@
   }
 
   // ---- Modo MOMENTUM (tabela limpa, sem volume) ----
-  function renderMomentum(idx, per, linhas, totalComDado, aviso){
+  function renderMomentum(idx, per, linhas, totalComDado, aviso, ctx){
     const seta = estado.dir==="desc" ? "▼" : "▲";
 
     const cols = colunas();
@@ -779,7 +826,7 @@
 
     const maxAbs = Math.max(0.0001, ...linhas.map(a=>Math.abs(retornoDe(a, per)??0)));
     if(linhas.length===0){
-      tbody.innerHTML = `<tr><td class="empty" colspan="${4+cols.length}">Nada encontrado.</td></tr>`;
+      tbody.innerHTML = `<tr><td class="empty" colspan="${4+cols.length}">${ctx.vazio}</td></tr>`;
     } else {
       tbody.innerHTML = linhas.map((a,i)=>{
         let tds = `<td class="lft rank">${i+1}</td>${celAtivo(a)}`
@@ -807,12 +854,12 @@
     summaryEl.innerHTML =
       `<b>${idx.nome}</b> · ordenado por <b>${rotuloPeriodoLongo(per)}</b> (${rotDir}) · `
       + `${totalComDado} ativos com histórico · mostrando ${linhas.length}`
-      + rotuloCarteira(idx) + "."
+      + ctx.notaLiq + rotuloCarteira(idx) + "."
       + aviso;
   }
 
   // ---- Modo VOLUME (visão dedicada) ----
-  function renderVolume(idx, per, linhas, totalComDado, aviso){
+  function renderVolume(idx, per, linhas, totalComDado, aviso, ctx){
     const seta = estado.dir==="desc" ? "▼" : "▲";
     const volSel = estado.sortCampo==="volume";
     const retSel = estado.sortCampo==="retorno";
@@ -830,7 +877,7 @@
     document.getElementById("thVar").onclick = ()=>{ estado.sortCampo="retorno"; atualizarLabelsDir(); render(); };
 
     if(linhas.length===0){
-      tbody.innerHTML = `<tr><td class="empty" colspan="7">Nada encontrado.</td></tr>`;
+      tbody.innerHTML = `<tr><td class="empty" colspan="7">${ctx.vazio}</td></tr>`;
     } else {
       tbody.innerHTML = linhas.map((a,i)=>{
         const v = a.rvol;
@@ -858,7 +905,7 @@
     summaryEl.innerHTML =
       `<b>${idx.nome}</b> · análise de volume · ordenado por <b>${ordLabel}</b> (${rotDir}) · `
       + `${totalComDado} ativos com dado · mostrando ${linhas.length}`
-      + rotuloCarteira(idx) + "."
+      + ctx.notaLiq + rotuloCarteira(idx) + "."
       + aviso;
   }
 
@@ -871,6 +918,9 @@
     + "Em \"Datas…\", cada ponta do intervalo usa o fechamento do pregão mais próximo para trás — "
     + "se a data escolhida cair em fim de semana ou feriado, vale o último pregão antes dela. "
     + "Volume relativo = média dos últimos 5 pregões ÷ média dos ~60 pregões anteriores. "
+    + "O filtro de \"Liquidez mínima\" corta pelo volume financeiro médio dos últimos 5 pregões "
+    + "e tira também quem está sem esse dado; a busca por ticker ignora o filtro, para que um "
+    + "ativo pedido pelo nome não suma da tela. "
     + "Quando a série tem uma quebra (grupamento ou desdobramento não ajustado pela fonte, "
     + "ou cotação inconsistente), os períodos que atravessam essa data aparecem como \"⚠\" "
     + "em vez de um número — preços dos dois lados da quebra não são comparáveis. "

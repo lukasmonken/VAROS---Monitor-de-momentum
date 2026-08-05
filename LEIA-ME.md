@@ -75,7 +75,11 @@ pip install -r requirements.txt
    - buscar por ticker ou empresa — e **vários de uma vez, separados por
      vírgula** (`VAMO3, KLBN11, PETR4`), que vira uma mini-carteira na tela;
    - clicar em **Datas…** para comparar duas datas quaisquer do último ano;
-   - limitar a Top 10 / 20 / 50 ou ver todas.
+   - limitar a Top 10 / 20 / 50 ou ver todas;
+   - cortar o que negocia pouco em **Liquidez mínima** (R$ 1 mi, 5 mi ou 20 mi
+     por dia). Sem esse corte, o topo do SMLL costuma ser tomado por papel de
+     R$ 200 mil/dia: o retorno é real, mas não é um ativo em que dê para entrar
+     e sair. O resumo diz quantos ficaram de fora.
 
    **No celular** a tabela vira uma lista de cartões: cada ativo mostra ticker,
    preço, o mini-gráfico e todos os períodos em blocos com rótulo, sem precisar
@@ -206,6 +210,16 @@ Os três números vivem no topo do `atualizar.py` (`TENTATIVAS_DOWNLOAD`,
     período escolhido como contexto. Serve para **confirmar o momentum**: alta
     com volume alto é sinal forte; alta com volume fraco, desconfie. Clique em
     "Vol. relativo" ou "Var." para ordenar por cada uma.
+- **Liquidez mínima:** corta pelo **volume financeiro médio dos últimos 5
+  pregões** — o mesmo número que a aba Volume mostra em "Volume (R$/dia)". Duas
+  regras que valem saber:
+  - quem está **sem esse dado** também sai quando há um corte ativo. Sem o
+    número não dá para afirmar que o ativo passa, e deixá-lo entrar seria fingir
+    que passou;
+  - a **busca ignora o filtro**. Quem digita um ticker está pedindo aquele
+    ativo; escondê-lo por ser ilíquido só produziria um "Nada encontrado" sem
+    explicação. Para conferir a liquidez de um papel específico, a aba Volume
+    mostra o R$/dia dele.
 - Os retornos usam **fechamento ajustado** (proventos e desdobramentos já
   embutidos), que é a forma correta de medir momentum de retorno total.
 - Cada período compara o **último pregão** com o pregão **mais próximo** da
