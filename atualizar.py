@@ -129,14 +129,54 @@ LIMITE_QUEBRA = 0.60
 # 1) Ler as carteiras da B3
 # --------------------------------------------------------------------------- #
 
-def arquivo_mais_recente(prefixo: str) -> str | None:
-    """Acha o CSV mais recente de um índice dentro de ./carteiras."""
+def data_da_carteira(caminho: str) -> datetime | None:
+    """
+    Data de referência da carteira, que é o que diz se ela é velha ou nova.
+
+    Vem da 1ª linha do próprio CSV — a B3 carimba lá "IBOV - Carteira do Dia
+    21/07/26". Se essa linha não estiver no formato esperado, tentamos a data no
+    nome do arquivo ("IBOVDia_21-07-26.csv"). Devolve None se nenhuma das duas
+    puder ser lida.
+    """
+    try:
+        with open(caminho, encoding="latin-1") as f:
+            cabecalho = f.readline()
+    except OSError:
+        cabecalho = ""
+
+    # Ano com 2 dígitos: 26 -> 2026 (a regra do %y vai de 2000 a 2068).
+    for texto in (cabecalho, os.path.basename(caminho)):
+        m = re.search(r"(\d{2})[/-](\d{2})[/-](\d{2}|\d{4})", texto)
+        if not m:
+            continue
+        dia, mes, ano = m.groups()
+        formato = "%d/%m/%Y" if len(ano) == 4 else "%d/%m/%y"
+        try:
+            return datetime.strptime(f"{dia}/{mes}/{ano}", formato)
+        except ValueError:
+            continue
+    return None
+
+
+def carteira_mais_recente(prefixo: str) -> tuple[str, datetime | None] | None:
+    """
+    Escolhe o CSV mais recente de um índice dentro de ./carteiras, devolvendo
+    (caminho, data_de_referência).
+
+    A ordenação é pela data que a B3 carimba no arquivo, e NÃO pela data de
+    modificação: no GitHub Action o checkout grava todos os arquivos no mesmo
+    instante, então o mtime não distingue nada e, com duas carteiras do mesmo
+    índice na pasta, a antiga podia ser escolhida por sorteio — e o site sairia
+    com a composição errada sem avisar ninguém. O mtime fica só como desempate
+    para arquivos cuja data não dá para ler.
+    """
     padrao = os.path.join(PASTA_CARTEIRAS, f"{prefixo}*.csv")
     arquivos = glob.glob(padrao)
     if not arquivos:
         return None
-    # Mais recente pela data de modificação do arquivo.
-    return max(arquivos, key=os.path.getmtime)
+    candidatos = [(caminho, data_da_carteira(caminho)) for caminho in arquivos]
+    return max(candidatos,
+               key=lambda c: (c[1] or datetime.min, os.path.getmtime(c[0])))
 
 
 def ler_carteira(caminho: str) -> dict[str, str]:
@@ -166,16 +206,19 @@ def carregar_indices() -> dict[str, dict]:
     """Monta {codigo_indice: {nome, acoes:{ticker:nome}}} a partir dos CSVs."""
     resultado = {}
     for cod, info in INDICES.items():
-        caminho = arquivo_mais_recente(info["prefixo"])
-        if not caminho:
+        escolha = carteira_mais_recente(info["prefixo"])
+        if not escolha:
             print(f"  ! Nenhum CSV encontrado para {cod} "
                   f"(esperado {info['prefixo']}*.csv em carteiras/) — pulando.")
             continue
+        caminho, data = escolha
         acoes = ler_carteira(caminho)
         resultado[cod] = {"nome": info["nome"], "acoes": acoes,
-                          "fora_de_todos": info.get("fora_de_todos", False)}
+                          "fora_de_todos": info.get("fora_de_todos", False),
+                          "data_carteira": data.strftime("%d/%m/%Y") if data else None}
+        rotulo = f"carteira de {data.strftime('%d/%m/%Y')}" if data else "data não identificada"
         print(f"  • {cod:5s} {info['nome']:20s} {len(acoes):3d} ações "
-              f"({os.path.basename(caminho)})")
+              f"({os.path.basename(caminho)} · {rotulo})")
     return resultado
 
 
@@ -425,7 +468,11 @@ def main() -> None:
         "indices": {
             cod: {"nome": idx["nome"],
                   "tickers": list(idx["acoes"].keys()),
-                  "fora_de_todos": idx.get("fora_de_todos", False)}
+                  "fora_de_todos": idx.get("fora_de_todos", False),
+                  # Data de referência do CSV da B3 que gerou esta lista — vai
+                  # para a tela para dar de cara quando uma carteira ficou para
+                  # trás de um rebalanceamento.
+                  "data_carteira": idx.get("data_carteira")}
             for cod, idx in indices.items()
         },
     }
