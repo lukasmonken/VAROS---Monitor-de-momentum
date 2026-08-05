@@ -155,6 +155,25 @@ registro.
 > Se o Pages precisar ser reconfigurado algum dia: **Settings → Pages → Source
 > = GitHub Actions** (e não "Deploy from a branch").
 
+### Quando o Yahoo falha
+
+Sob throttling, o Yahoo responde normalmente mas com **só uma parte dos
+tickers** — não dá erro, só vem menos dado. Publicar isso seria pior do que não
+publicar: o site trocaria uma versão boa por uma tabela cheia de "—" com cara de
+legítima. Então o `atualizar.py`:
+
+1. **repete o download** até 3 vezes, pedindo na segunda volta apenas os tickers
+   que não vieram (e não a lista inteira de novo);
+2. se ainda assim mais de **10%** ficarem sem cotação, **aborta antes de gravar
+   qualquer arquivo**. A Action falha, o deploy não acontece e o site do dia
+   anterior continua no ar. Quem roda na mão também não perde o `dados.js` que
+   já tinha.
+
+O limite não é zero porque sempre há papel recém-listado ou suspenso que a fonte
+não devolve — esses aparecem como aviso no fim da execução, sem derrubar nada.
+Os três números vivem no topo do `atualizar.py` (`TENTATIVAS_DOWNLOAD`,
+`ESPERA_ENTRE_TENTATIVAS`, `LIMITE_SEM_COTACAO`).
+
 ---
 
 ## Arquivos

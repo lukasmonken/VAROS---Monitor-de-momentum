@@ -26,7 +26,19 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timedelta
+import time
+from datetime import datetime, timedelta, timezone
+
+# Fuso do carimbo "atualizado em". Sem isto ele sai no fuso de quem roda o
+# script — e quem roda todo dia é a GitHub Action, cujo runner está em UTC:
+# o site mostrava 20:23 para uma execução das 17:23 de Brasília. O Brasil não
+# tem mais horário de verão desde 2019, então o UTC-3 fixo serve de reserva
+# para máquina sem base de fusos instalada.
+try:
+    from zoneinfo import ZoneInfo
+    FUSO_BR = ZoneInfo("America/Sao_Paulo")
+except Exception:
+    FUSO_BR = timezone(timedelta(hours=-3))
 
 try:
     import pandas as pd
@@ -123,6 +135,18 @@ VOL_JANELA_BASE = 60      # pregões de referência (o "normal" da ação)
 # O limite é alto de propósito — a -55% de um pregão da RCSL4, que reverteu nos
 # dias seguintes, é volatilidade de penny stock e continua valendo.
 LIMITE_QUEBRA = 0.60
+
+# Resposta parcial do Yahoo. Sob throttling ele responde 200 com só uma parte
+# dos tickers — não é erro, é dado faltando. Como quem roda este script todo dia
+# é a GitHub Action, uma resposta dessas viraria site publicado com metade das
+# ações sem retorno, por cima da versão boa de ontem. Então: tenta de novo (só
+# os tickers que faltaram) e, se ainda assim faltar demais, o script falha sem
+# gravar nada — a Action não publica e o site anterior continua no ar.
+TENTATIVAS_DOWNLOAD = 3
+ESPERA_ENTRE_TENTATIVAS = 20   # segundos
+# Fração de tickers sem cotação que ainda dá para publicar. Não é zero porque
+# sempre há papel recém-listado ou em suspensão que o Yahoo não devolve.
+LIMITE_SEM_COTACAO = 0.10
 
 
 # --------------------------------------------------------------------------- #
@@ -226,17 +250,11 @@ def carregar_indices() -> dict[str, dict]:
 # 2) Baixar preços do Yahoo Finance
 # --------------------------------------------------------------------------- #
 
-def baixar_precos(tickers_yahoo: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Baixa ~400 dias de dados diários para todos os tickers de uma vez.
-    Devolve (fechamento_ajustado, volume) — cada um um DataFrame com uma
-    coluna por ticker. O volume vem do mesmo download (sem consulta extra).
-    """
-    inicio = (datetime.now() - timedelta(days=400)).strftime("%Y-%m-%d")
-    fim = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-
+def _uma_tentativa(tickers: list[str], inicio: str,
+                   fim: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Um download do Yahoo, já normalizado. Levanta erro se vier vazio."""
     dados = yf.download(
-        tickers_yahoo,
+        tickers,
         start=inicio,
         end=fim,
         interval="1d",
@@ -247,19 +265,79 @@ def baixar_precos(tickers_yahoo: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]
     )
 
     if dados is None or dados.empty:
-        raise RuntimeError("O Yahoo não retornou dados. Verifique a internet.")
+        raise RuntimeError("resposta vazia")
 
     # Com vários tickers, dados["Close"] é um DataFrame (uma coluna por ticker).
     # Com 1 ticker só, vira uma Series — normalizamos para DataFrame.
     def _tabela(campo: str) -> pd.DataFrame:
         t = dados[campo]
         if isinstance(t, pd.Series):
-            t = t.to_frame(name=tickers_yahoo[0])
+            t = t.to_frame(name=tickers[0])
         if getattr(t.index, "tz", None) is not None:
             t.index = t.index.tz_localize(None)
         return t
 
     return _tabela("Close"), _tabela("Volume")
+
+
+def sem_cotacao(close: pd.DataFrame, tickers: list[str]) -> list[str]:
+    """Tickers que não vieram na resposta, ou vieram só com buracos."""
+    return [t for t in tickers
+            if t not in close.columns or close[t].dropna().empty]
+
+
+def baixar_precos(tickers_yahoo: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Baixa ~400 dias de dados diários para todos os tickers de uma vez.
+    Devolve (fechamento_ajustado, volume) — cada um um DataFrame com uma
+    coluna por ticker. O volume vem do mesmo download (sem consulta extra).
+
+    Repete o download enquanto sobrar ticker sem cotação, pedindo na segunda
+    volta APENAS os que faltaram — ver TENTATIVAS_DOWNLOAD. Quem decide se o
+    que veio é suficiente para publicar é o main().
+    """
+    # Aqui o fuso não importa (ao contrário do carimbo "atualizado em"): são 400
+    # dias para trás, quando bastam ~366, e um dia inteiro de folga para a frente.
+    inicio = (datetime.now() - timedelta(days=400)).strftime("%Y-%m-%d")
+    fim = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    close: pd.DataFrame | None = None
+    volume: pd.DataFrame | None = None
+
+    for tentativa in range(1, TENTATIVAS_DOWNLOAD + 1):
+        alvo = tickers_yahoo if close is None else sem_cotacao(close, tickers_yahoo)
+        if tentativa > 1:
+            print(f"     tentativa {tentativa}/{TENTATIVAS_DOWNLOAD} — "
+                  f"repetindo {len(alvo)} ticker(s) que não vieram...")
+        try:
+            c, v = _uma_tentativa(alvo, inicio, fim)
+        except Exception as e:
+            print(f"  ! Yahoo falhou na tentativa {tentativa}"
+                  f"/{TENTATIVAS_DOWNLOAD}: {e}")
+            c = v = None
+
+        if c is not None:
+            if close is None:
+                close, volume = c, v
+            else:
+                # Só completa as colunas que faltavam; a atribuição alinha pelo
+                # índice de datas, então o eixo comum não se desloca.
+                for col in c.columns:
+                    close[col] = c[col]
+                    if col in v.columns:
+                        volume[col] = v[col]
+
+        if close is not None and not sem_cotacao(close, tickers_yahoo):
+            break
+        if tentativa < TENTATIVAS_DOWNLOAD:
+            time.sleep(ESPERA_ENTRE_TENTATIVAS)
+
+    if close is None:
+        raise RuntimeError(
+            f"O Yahoo não retornou dados em {TENTATIVAS_DOWNLOAD} tentativas. "
+            f"Verifique a internet e rode de novo.")
+
+    return close, volume
 
 
 # --------------------------------------------------------------------------- #
@@ -424,6 +502,29 @@ def main() -> None:
             "rvol": rvol, "vol_rs": vol_rs,
         }
 
+    # Porta de segurança. Daqui para baixo o script grava os arquivos que a
+    # Action publica — e publicar dado furado é pior do que não publicar, porque
+    # substitui no ar uma versão boa por uma tabela cheia de "—" que parece
+    # legítima. Falhando aqui, a Action não chega ao deploy e o site de ontem
+    # continua no ar. Note que isto roda ANTES de tocar em dados.js/dados.json:
+    # quem roda na mão também não perde o arquivo que já tinha.
+    fracao_sem = len(sem_dados) / len(tickers_b3) if tickers_b3 else 1.0
+    if fracao_sem > LIMITE_SEM_COTACAO:
+        print("\n" + "=" * 62)
+        print(f"  ABORTADO: {len(sem_dados)} de {len(tickers_b3)} tickers "
+              f"({fracao_sem:.0%}) ficaram sem cotação, acima do limite de "
+              f"{LIMITE_SEM_COTACAO:.0%}.")
+        print("  Isso é resposta parcial do Yahoo, não mercado. Nada foi "
+              "gravado —")
+        print("  o dados.js anterior está intacto. Rode de novo em alguns "
+              "minutos.")
+        amostra = ", ".join(sem_dados[:15])
+        if len(sem_dados) > 15:
+            amostra += f" e mais {len(sem_dados) - 15}"
+        print(f"  Sem cotação: {amostra}")
+        print("=" * 62)
+        sys.exit(1)
+
     # Monta a estrutura final por índice.
     data_ref = None
     if not close.empty:
@@ -456,7 +557,8 @@ def main() -> None:
         }
 
     saida = {
-        "atualizado_em": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        # Sempre em horário de Brasília — ver FUSO_BR.
+        "atualizado_em": datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M"),
         "data_pregao": data_ref,
         "periodos": {k: v[0] for k, v in PERIODOS.items()},
         # Explicação de cada período, para o title da coluna na interface —
