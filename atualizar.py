@@ -27,7 +27,18 @@ import os
 import re
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+# Fuso do carimbo "atualizado em". Sem isto ele sai no fuso de quem roda o
+# script — e quem roda todo dia é a GitHub Action, cujo runner está em UTC:
+# o site mostrava 20:23 para uma execução das 17:23 de Brasília. O Brasil não
+# tem mais horário de verão desde 2019, então o UTC-3 fixo serve de reserva
+# para máquina sem base de fusos instalada.
+try:
+    from zoneinfo import ZoneInfo
+    FUSO_BR = ZoneInfo("America/Sao_Paulo")
+except Exception:
+    FUSO_BR = timezone(timedelta(hours=-3))
 
 try:
     import pandas as pd
@@ -285,6 +296,8 @@ def baixar_precos(tickers_yahoo: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]
     volta APENAS os que faltaram — ver TENTATIVAS_DOWNLOAD. Quem decide se o
     que veio é suficiente para publicar é o main().
     """
+    # Aqui o fuso não importa (ao contrário do carimbo "atualizado em"): são 400
+    # dias para trás, quando bastam ~366, e um dia inteiro de folga para a frente.
     inicio = (datetime.now() - timedelta(days=400)).strftime("%Y-%m-%d")
     fim = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
@@ -544,7 +557,8 @@ def main() -> None:
         }
 
     saida = {
-        "atualizado_em": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        # Sempre em horário de Brasília — ver FUSO_BR.
+        "atualizado_em": datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M"),
         "data_pregao": data_ref,
         "periodos": {k: v[0] for k, v in PERIODOS.items()},
         # Explicação de cada período, para o title da coluna na interface —
