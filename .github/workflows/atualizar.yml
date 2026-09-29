@@ -117,3 +117,23 @@ jobs:
             echo "::error::O site publicado respondeu $dados em /dados.js. O deploy terminou, mas o arquivo de dados não está no ar."
           fi
           exit 1
+
+  # O GitHub desliga o agendamento (o cron lá de cima) quando o repositório
+  # passa 60 dias sem commit. Antes isso nunca acontecia porque esta Action
+  # gravava o dados.js de volta todo dia; desde que ela parou de escrever no
+  # repositório, o monitor pode ficar semanas sem commit mesmo atualizando o
+  # site diariamente — e em 09/2026 chegou o e-mail avisando do desligamento.
+  #
+  # Este job "reativa" o próprio fluxo pela API a cada execução, o que zera a
+  # contagem dos 60 dias sem criar commit nenhum. Fica num job separado de
+  # propósito: se o Yahoo cair e o publicar falhar, o agendamento continua vivo
+  # para tentar de novo no dia seguinte.
+  manter-ativo:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write   # só o necessário para chamar o "enable" do workflow
+    steps:
+      - name: Manter o agendamento ligado
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/atualizar.yml/enable"
